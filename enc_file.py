@@ -153,6 +153,12 @@ if __name__ == '__main__':
             postfix = '.dec' if decrypt_flag else '.enc'
             dst = src + postfix
 
+            name, ext = os.path.splitext(src)
+            if decrypt_flag and ext == '.enc':
+                _, ext = os.path.splitext(name)
+                if ext:
+                    dst = name
+
         if os.path.isfile(dst):
             choice = raw_input('File %s exists, overwrite? (y/n) ' % dst)
             if choice != 'y':
