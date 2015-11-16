@@ -1,19 +1,11 @@
 #! /usr/bin/env python
 
 '''
-Make packages for backup, in the following steps:
-* Package photos into tgz format in a specified pkg size, in the time order
+Pack photos/videos for backup purpose, in the following steps:
+* Pack photos/videos into packages in .tar file type, with a specified pkg size, and ordered by time
+* Create a sqlite3 db file to store md5 message of all packed photos/videos, so there won't be duplicate files in your packages
 * Randomly generate a 128-bit key, and using AES algorithm to encrypt the packages
-* Using a specified password to encrypt the 128-bit key, and store the encrypted key to a file
-* Generate a csv file to store the information of the photos in packages
-
-Input:
-    photos_dir: the root directory of the photos which will be packaged
-    pkg_size: max size for a photo package
-    password: password used to encrypt the AES key
-    backup_dir: directory where packages will store in
-    working_dir: working directory, there will be some temporary files generated there, 
-                and will be finally deleted if the packages has been made successfully
+* Using a specified password to encrypt the 128-bit key, and store the encrypted key into the sqlite3 db file
 '''
 
 import os
@@ -376,16 +368,16 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='Pack photos for backup.')
-    parser.add_argument('src', help='photos path')
-    parser.add_argument('-o', '--output', help='output archive path in decrypt mode, archive dir in pack mode.')
-    parser.add_argument('--db', dest='db_path', help='backup db file', default='db.sqlite3')
-    parser.add_argument('--ignore-prefix', help='ignore path prefix when store md5')
-    parser.add_argument('-p', '--password', help='password to encrypt the AES key')
-    parser.add_argument('--no-encrypt', help='no need to encrypt the archive')
-    parser.add_argument('--tmp', help='temporary file dir')
-    parser.add_argument('--exclude-dir', help='excldue dir')
+    parser.add_argument('src', help='Source path or directory. In pack mode(default), this specify the photos/videos directory which will be packed; in decrypt mode(-d), this specify the archive file which will be decrypted.')
+    parser.add_argument('-o', '--output', help='Output directory or path. In pack mode(default), this specify the output directory of encrypted archives; in decrypt mode(-d), this specify the output path or directory for the decrypted archive file.')
+    parser.add_argument('--db', dest='db_path', help='Database file path', default='db.sqlite3')
+    parser.add_argument('--ignore-prefix', help='Ignore the specified path prefix when caching md5')
+    parser.add_argument('-p', '--password', help='Password to encrypt the AES key')
+    parser.add_argument('--no-encrypt', help='No need to encrypt the archive files')
+    parser.add_argument('--tmp', help='Temporary working directory')
+    parser.add_argument('--exclude-dir', help='Excldue directory')
 
-    parser.add_argument('-d', '--decrypt', dest='decrypt_flag', action='store_const', const=True, help='decrypt')
+    parser.add_argument('-d', '--decrypt', dest='decrypt_flag', action='store_const', const=True, help='Decrypt the specified archive file.')
 
     args = parser.parse_args()
     log( args )
