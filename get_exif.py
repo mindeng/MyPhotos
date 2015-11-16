@@ -11,26 +11,34 @@ def get_time_of_file(path):
 
     _, ext = os.path.splitext(path)
     if ext.lower() == '.mov':
+        # Better performance than get_original_time_with_hachoir
         originalTime = get_creation_datetime_for_mov(path)
     elif ext.lower() in ( '.mp4', '.avi', '.m4v' ):
-        metadata = processFile(path)
-        try:
-            originalTime = metadata.get('creation_date')
-        except ValueError:
-            pass
+        originalTime = get_original_time_with_hachoir(path)
     else:
-        # Better performance than get_original_datetime_of_file
         try:
-            originalTime = get_original_datetime_of_photo(path)
+            # Better performance than get_original_time_with_hachoir
+            originalTime = get_original_datetime_for_image(path)
         except IOError:
-            print 'Failed to get original time from %s . Maybe it is not a image.' % path
-            exit(1)
+            #print 'Failed to get original time from %s . Maybe it is not a image.' % path
+            #exit(1)
+
+            # Maybe it's not a image, fall back to the slower way
+            originalTime = get_original_time_with_hachoir(path)
 
     fileTime = get_ctime(path)
 
     return fileTime, originalTime
 
-def get_original_datetime_of_file(path):
+def get_original_time_with_hachoir(path):
+    try:
+        metadata = processFile(path)
+        return metadata.get('creation_date')
+    except ValueError:
+        return None
+
+def get_original_time_with_exifread(path):
+    import exifread
     TAG_NAME = 'EXIF DateTimeOriginal'
     with open(path, 'rb') as f:
         tags = exifread.process_file(f)
@@ -40,7 +48,7 @@ def get_original_datetime_of_file(path):
 _EXIF_TAG_TIME_ORIGINAL = 'DateTimeOriginal'
 _EXIF_ID_TIME_ORIGINAL = next((k for k, v in PIL.ExifTags.TAGS.items() if v == _EXIF_TAG_TIME_ORIGINAL))
 _EXIF_TIME_FORMAT = '%Y:%m:%d %H:%M:%S'
-def get_original_datetime_of_photo(path):
+def get_original_datetime_for_image(path):
     img = PIL.Image.open(path)
     try:
         exif = img._getexif()
@@ -216,21 +224,6 @@ if __name__ == '__main__':
     import sys
 
     path = sys.argv[1]
-    #print_exif(path)
-
-    #img = PIL.Image.open(path)
-    #exif_data = get_exif_data(img)
-    #print get_lat_lon(exif_data)
-
-    import exifread
-    # Open image file for reading (binary mode)
-    f = open(path, 'rb')
-
-    # Return Exif tags
-    tags = exifread.process_file(f)
-    print tags#['DateTimeOriginal']
-
-    metadata = processFile(path)
-    print metadata.get('creation_date')
-
-    print get_time_of_file(path)
+    fileTime, originalTime = get_time_of_file(path)
+    print 'Original time:', originalTime.strftime('%F %T')
+    print 'File time:', fileTime.strftime('%F %T')
