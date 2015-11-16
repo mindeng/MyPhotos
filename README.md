@@ -31,8 +31,7 @@ enc_file.py 除了可以加密、解密文件，还支持加密、解密字符�
 * PIL
 * hachoir_metadata
 
-参考安装步骤
-+++++++++++++
+### 参考安装步骤
 
 如果是 OS X 系统，建议使用 Homebrew 重新安装 Python，否则部分依赖可能安装失败（也可以先尝试不重装 Python，如果遇到安装依赖包失败时再重装 Python）：
 
