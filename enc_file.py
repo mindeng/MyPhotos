@@ -135,7 +135,7 @@ if __name__ == '__main__':
     parser.add_argument('--check-magic', action='store_const', const=True, help='check magic number')
 
     args = parser.parse_args()
-    print args
+    #print args
 
     src = args.src
     dst = args.dst
