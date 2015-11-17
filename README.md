@@ -60,6 +60,8 @@ $ pip install hachoir-core hachoir-parser hachoir-metadata
 ./pack_photos.py /Volumes/DISK1/iPhoto-2013-2015.photolibrary/Masters --ignore-prefix='/Volumes/DISK1/' -o /Volumes/DISK2/photo-bak/ --tmp /path/to/ramdisk &> iPhoto-2013-2015.log
 ```
 
+Mac OS X 下创建 ramdisk 可参考文章 http://www.minotes.net/notes/osx-ramdisk/ 。
+
 ### 解密模式
 
 ```
