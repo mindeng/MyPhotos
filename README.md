@@ -51,8 +51,20 @@ $ pip install PIL --allow-external PIL --allow-unverified PIL
 $ pip install hachoir-core hachoir-parser hachoir-metadata
 ```
 
-详细用法
---------
+用法示例
+---------
+
+### 打包模式
+
+```
+./pack_photos.py /Volumes/DISK1/iPhoto-2013-2015.photolibrary/Masters --ignore-prefix='/Volumes/DISK1/' -o /Volumes/DISK2/photo-bak/ --tmp /path/to/ramdisk &> iPhoto-2013-2015.log
+```
+
+### 解密模式
+
+```
+./pack_photos.py -d /Volumes/DISK2/photo-bak/200711-201301_5912.tar.enc -o /path/to/ramdisk
+```
 
 详细用法请参考命令行帮助文档：
 
