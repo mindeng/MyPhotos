@@ -19,7 +19,6 @@
 * 归档过程可随时中断，下次重新运行即可
 
 另外，里面的几个小工具也可以单独使用，例如 get_exif.py, enc_file.py 。
-
 enc_file.py 除了可以加密、解密文件，还支持加密、解密字符串（输出也是字符串，加密并base64处理），方便使用。
 
 
@@ -52,44 +51,58 @@ $ pip install PIL --allow-external PIL --allow-unverified PIL
 $ pip install hachoir-core hachoir-parser hachoir-metadata
 ```
 
-详细用法
---------
+用法示例
+---------
+
+### 打包模式
+
+```
+./pack_photos.py /Volumes/DISK1/iPhoto-2013-2015.photolibrary/Masters --ignore-prefix='/Volumes/DISK1/' -o /Volumes/DISK2/photo-bak/ --tmp /path/to/ramdisk &> iPhoto-2013-2015.log
+```
+
+Mac OS X 下创建 ramdisk 可参考文章 http://www.minotes.net/notes/osx-ramdisk/ 。
+
+### 解密模式
+
+```
+./pack_photos.py -d /Volumes/DISK2/photo-bak/200711-201301_5912.tar.enc -o /path/to/ramdisk
+```
 
 详细用法请参考命令行帮助文档：
 
 ```
 $ ./pack_photos.py -h
 usage: pack_photos.py [-h] [-o OUTPUT] [--db DB_PATH]
-[--ignore-prefix IGNORE_PREFIX] [-p PASSWORD]
-[--no-encrypt NO_ENCRYPT] [--tmp TMP]
-[--exclude-dir EXCLUDE_DIR] [-d]
-src
+                      [--ignore-prefix IGNORE_PREFIX] [-p PASSWORD]
+                      [--no-encrypt NO_ENCRYPT] [--tmp TMP]
+                      [--exclude-dir EXCLUDE_DIR] [-d]
+                      src
 
 Pack photos for backup.
 
 positional arguments:
-src                   Source path or directory. In pack mode(default), this
-specify the photos/videos directory which will be
-packed; in decrypt mode(-d), this specify the archive
-file which will be decrypted.
+  src                   Source path or directory. In pack mode(default), this
+                        specify the photos/videos directory which will be
+                        packed; in decrypt mode(-d), this specify the archive
+                        file which will be decrypted.
 
 optional arguments:
--h, --help            show this help message and exit
--o OUTPUT, --output OUTPUT   
-Output directory or path. In pack mode(default), this
-specify the output directory of encrypted archives; in
-decrypt mode(-d), this specify the output path or
-directory for the decrypted archive file.
---db DB_PATH          Database file path
---ignore-prefix IGNORE_PREFIX
-Ignore the specified path prefix when caching md5
--p PASSWORD, --password PASSWORD
-Password to encrypt the AES key
---no-encrypt NO_ENCRYPT
-No need to encrypt the archive files
---tmp TMP             Temporary working directory
---exclude-dir EXCLUDE_DIR
-Excldue directory
--d, --decrypt         Decrypt the specified archive file.
+  -h, --help            show this help message and exit
+  -o OUTPUT, --output OUTPUT
+                        Output directory or path. In pack mode(default), this
+                        specify the output directory of encrypted archives; in
+                        decrypt mode(-d), this specify the output path or
+                        directory for the decrypted archive file.
+  --db DB_PATH          Database file path
+  --ignore-prefix IGNORE_PREFIX
+                        Ignore the specified path prefix when caching md5
+  -p PASSWORD, --password PASSWORD
+                        Password to encrypt the AES key
+  --no-encrypt NO_ENCRYPT
+                        No need to encrypt the archive files
+  --tmp TMP             Temporary working directory
+  --exclude-dir EXCLUDE_DIR
+                        Excldue directory
+  -d, --decrypt         Decrypt the specified archive file.
 ```
 

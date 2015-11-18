@@ -380,7 +380,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--decrypt', dest='decrypt_flag', action='store_const', const=True, help='Decrypt the specified archive file.')
 
     args = parser.parse_args()
-    log( args )
+    #log( args )
 
     db_path = args.db_path
     ignore_prefix = args.ignore_prefix
