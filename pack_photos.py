@@ -283,7 +283,7 @@ class PhotoPacker(object):
                 c.execute('update photos set path=? where md5=?', (decode_path, md5))
                 self.db.commit()
             else:
-                log('Failed to save md5 %s for file %s .\n\tConflict with %s%s' % (md5, path, self.ignore_prefix, conflict_path))
+                log('Ignore duplicated file: %s md5: %s \n\tDuplicated with %s' % (decode_path, md5, conflict_path))
             return False
 
     def query_photo_path_by_md5(self, md5):
