@@ -110,12 +110,12 @@ def password_input(prompt='Password: '):
         password = getpass.getpass(prompt)
     return password
 
-def user_input_password(double_check=True):
+def user_input_password(double_check=True, prompt='Password: '):
     if not double_check:
-        return password_input()
+        return password_input(prompt)
     while True:
-        p1 = password_input()
-        p2 = password_input('Retype password: ')
+        p1 = password_input(prompt)
+        p2 = password_input('Retype %s' % prompt)
         if p1 != p2:
             print 'Passwords do not match'
         else:
@@ -177,9 +177,11 @@ if __name__ == '__main__':
                 encrypt_file(in_file, out_file, password, key_length)
 
     if args.do_string:
+        if src == '-':
+            src = user_input_password(True, 'String: ')
         if decrypt_flag:
-            print decrypt_str(args.src, password, args.check_magic)
+            print decrypt_str(src, password, args.check_magic)
         else:
-            print encrypt_str(args.src, password, key_length)
+            print encrypt_str(src, password, key_length)
     else:
         do_file()
