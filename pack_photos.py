@@ -369,7 +369,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Pack photos for backup.')
     parser.add_argument('src', help='Source path or directory. In pack mode(default), this specify the photos/videos directory which will be packed; in decrypt mode(-d), this specify the archive file which will be decrypted.')
-    parser.add_argument('-o', '--output', help='Output directory or path. In pack mode(default), this specify the output directory of encrypted archives; in decrypt mode(-d), this specify the output path or directory for the decrypted archive file.')
+    parser.add_argument('-o', '--output', 
+            help='Output directory or path. In pack mode(default), this specify the output directory of encrypted archives; in decrypt mode(-d), this specify the output path or directory for the decrypted archive file.',
+            default='.')
     parser.add_argument('--db', dest='db_path', help='Database file path', default='db.sqlite3')
     parser.add_argument('--ignore-prefix', help='Ignore the specified path prefix when caching md5')
     parser.add_argument('-p', '--password', help='Password to encrypt the AES key')
