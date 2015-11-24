@@ -178,7 +178,7 @@ if __name__ == '__main__':
 
     if args.do_string:
         if src == '-':
-            src = user_input_password(True, 'String: ')
+            src = user_input_password(not decrypt_flag, 'String: ')
         if decrypt_flag:
             print decrypt_str(src, password, args.check_magic)
         else:
