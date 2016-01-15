@@ -21,6 +21,7 @@ import hashlib
 import uuid
 import tarfile
 import sys
+import glob
 
 from enc_file import *
 
@@ -412,20 +413,39 @@ if __name__ == '__main__':
             save_key(db, key, password)
 
     if decrypt_flag:
-        if os.path.isdir(dst):
-            arch_name = os.path.basename(src)
-            arch_name, _ = os.path.splitext(arch_name)
-            dst = os.path.join(dst, arch_name)
+
+        if os.path.isdir(src) and os.path.isfile(dst):
+            print 'Invalid params: If src is directy, output must be a directy too.'
+            exit(1)
 
         if os.path.isfile(dst):
             choice = raw_input('File %s exists, overwrite? (y/n) ' % dst)
             if choice != 'y':
                 exit(1)
 
-        with open(src, 'rb') as in_file, open(dst, 'wb') as out_file:
-            ret = decrypt_file(in_file, out_file, key)
-            if not ret:
-                print 'Decrpt failed!'
+        def decrypt(src, dst):
+            if os.path.isdir(dst):
+                arch_name = os.path.basename(src)
+                arch_name, _ = os.path.splitext(arch_name)
+                dst = os.path.join(dst, arch_name)
+
+            print 'Decrypt %s -> %s' % (src, dst)
+
+            with open(src, 'rb') as in_file, open(dst, 'wb') as out_file:
+                ret = False
+                try:
+                    ret = decrypt_file(in_file, out_file, key)
+                except Exception, e:
+                    #print e
+                    pass
+                if not ret:
+                    print 'Decrypt failed %s' % src
+
+        if os.path.isfile(src):
+            decrypt(src, dst)
+        else:
+            for pkg in glob.glob(os.path.join(src, '*.enc')):
+                decrypt(pkg, dst)
     else:
         if not os.path.isdir(dst):
             os.makedirs(dst)
