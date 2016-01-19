@@ -462,7 +462,6 @@ if __name__ == '__main__':
                 if args.extract:
                     print 'Extracting %s ...' % (tmp_dst,)
                     extract_tar(tmp_dst, dst)
-                    print 'Extracting %s succeeded, the tar file will be deleted.' % (dst,)
                     os.unlink(tmp_dst)
 
         if os.path.isfile(src):
