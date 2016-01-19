@@ -329,6 +329,13 @@ class PhotoPacker(object):
 
         return photos
 
+def extract_tar(src, dst=None):
+    tar = tarfile.open(src)
+    if dst is None:
+        dst = os.path.dirname(src)
+    tar.extractall(dst)
+    tar.close()
+
 from Crypto import Random
 import hashlib
 
@@ -377,10 +384,12 @@ if __name__ == '__main__':
     parser.add_argument('--ignore-prefix', help='Ignore the specified path prefix when caching md5')
     parser.add_argument('-p', '--password', help='Password to encrypt the AES key')
     parser.add_argument('--no-encrypt', help='No need to encrypt the archive files')
+    #parser.add_argument('--no-tar', action='store_const', const=True, help='Backup photos into a directory, stead of encrypted tar files.')
     parser.add_argument('--tmp', help='Temporary working directory')
     parser.add_argument('--exclude-dir', help='Excldue directory')
 
     parser.add_argument('-d', '--decrypt', dest='decrypt_flag', action='store_const', const=True, help='Decrypt the specified archive file.')
+    parser.add_argument('--extract', action='store_const', const=True, help='In decrypt mode, extract photos to directories and then delete the tar files.')
 
     args = parser.parse_args()
     #log( args )
@@ -429,17 +438,32 @@ if __name__ == '__main__':
                 arch_name, _ = os.path.splitext(arch_name)
                 dst = os.path.join(dst, arch_name)
 
-            print 'Decrypt %s -> %s' % (src, dst)
+            tmp_dst = dst
+            if tmp and args.extract:
+                # If need to extract the decrypted tar file, decrypt it into tmp first, then extrat it, and then delete the tar file
+                tmp_dst = os.path.join(tmp, os.path.basename(dst))
+                dst = os.path.dirname(dst)
 
-            with open(src, 'rb') as in_file, open(dst, 'wb') as out_file:
+            print 'Decrypt %s -> %s' % (src, tmp_dst)
+
+            # Decrypt
+            with open(src, 'rb') as in_file, open(tmp_dst, 'wb') as out_file:
                 ret = False
                 try:
                     ret = decrypt_file(in_file, out_file, key)
                 except Exception, e:
                     #print e
                     pass
-                if not ret:
-                    print 'Decrypt failed %s' % src
+
+            if not ret:
+                print 'Decrypt failed %s' % src
+            else:
+                # Extract
+                if args.extract:
+                    print 'Extracting %s ...' % (tmp_dst,)
+                    extract_tar(tmp_dst, dst)
+                    print 'Extracting %s succeeded, the tar file will be deleted.' % (dst,)
+                    os.unlink(tmp_dst)
 
         if os.path.isfile(src):
             decrypt(src, dst)
