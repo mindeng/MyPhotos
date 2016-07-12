@@ -5,6 +5,7 @@ from mediafile import MediaFile
 from utils import *
 import os
 import logging
+from exif import ExifInfo
 
 MIN_FILE_SIZE = 10 * 1024
 TYPE_IMAGE, TYPE_VIDEO = 'image', 'video'
@@ -16,6 +17,9 @@ class Row(dict):
             return self[name]
         except KeyError:
             raise AttributeError(name)
+
+    # def save(self):
+    #     self._db.update(self.id, self)
     
 
 class MediaDatabase(object):
@@ -56,9 +60,25 @@ class MediaDatabase(object):
         return [Row(zip(column_names, row)) for row in cursor]
 
     def _make_where_clause(self, kv):
+        return ' and '.join(('%s=:%s'%(k,k) if v is not None else
+                             '%s is null'%k
+                             for k, v in kv.items()))
+
+    def _make_set_clause(self, kv):
         return ' and '.join(('%s=:%s'%(k,k) for k in kv))
 
-    def iter(self, **kwparameters):
+    def update(self, id, **kwparameters):
+        if kwparameters:
+            query = "update medias set %s where id=:id" % \
+                    self._make_set_clause(kwparameters)
+            kwparameters["id"] = id
+        else:
+            return -1
+        cursor = self._cursor
+        rowid = self._execute(cursor, query, None, kwparameters)
+        return rowid
+
+    def iter(self, *parameters, **kwparameters):
         """Returns an iterator for the given query and parameters."""
         if kwparameters:
             query = "select * from medias where %s" % \
@@ -66,7 +86,7 @@ class MediaDatabase(object):
         else:
             query = "select * from medias"
         cursor = self._cursor
-        self._execute(cursor, query, None, kwparameters)
+        self._execute(cursor, query, parameters, kwparameters)
         column_names = [d[0] for d in cursor.description]
         for row in cursor:
             yield Row(zip(column_names, row))
@@ -95,9 +115,13 @@ class MediaDatabase(object):
     def del_file(self, **kwparameters):
         sql = 'delete from medias where %s' % \
               self._make_where_clause(kwparameters)
-        self._execute(self._cursor, sql, **kwparameters)
+        self._execute(self._cursor, sql, None, kwparameters)
 
-    def add_file(self, path):
+    def relpath(self, path):
+        return decode_text(os.path.relpath(path, self._db_dir))
+
+    @staticmethod
+    def is_valid_media_file(path):
         file_path = path
         name = os.path.basename(path)
         
@@ -105,8 +129,6 @@ class MediaDatabase(object):
             # Ignore non-files, e.g. symbol links
             return False
             
-        relative_path = os.path.relpath(file_path, self._db_dir)
-
         if name.startswith('.'):
             #log('Ignore hidden file: %s' % file_path)
             return False
@@ -117,15 +139,23 @@ class MediaDatabase(object):
             return False
             
         if size < MIN_FILE_SIZE:
-            log('Ignore small file: %s' % relative_path)
+            log('Ignore small file: %s' % path)
             return False
 
-        if self.has(relative_path=decode_text(relative_path)):
+        return True
+
+    def add_file(self, path):
+        if not MediaDatabase.is_valid_media_file(path):
             return False
 
+        relative_path = self.relpath(path)
+
+        if self.has(relative_path=relative_path):
+            return False
+            
         log("+ %s" % relative_path)
         
-        mf = MediaFile(file_path, relative_path)
+        mf = MediaFile(path, relative_path)
         return self._save(mf)
 
     def build(self, path):
@@ -309,6 +339,11 @@ def parse_cmd_args():
         '--path',
         help='File path to add or update.'
     )
+    parser.add_argument(
+        '--update-time',
+        action='store_true',
+        help='Update collumn time for all files.'
+    )
 
     # args for diff
     parser.add_argument(
@@ -327,6 +362,34 @@ def parse_cmd_args():
         exit(0)
 
     return args
+
+def update_time_for_all_files(mdb, media_dir):
+    count = 0
+    for root, dirs, files in os.walk(media_dir, topdown=True):
+        for name in files:
+            file_path = os.path.join(root, name)
+            if not MediaDatabase.is_valid_media_file(file_path):
+                continue
+                
+            exif_info = ExifInfo(file_path)
+            
+            relative_path = mdb.relpath(file_path)
+            mf = mdb.get(relative_path=relative_path)
+            
+            if mf and mf.create_time == exif_info.create_time:
+                continue
+            elif mf:
+                # update
+                rowid = mdb.update(mf.id, create_time=exif_info.create_time)
+                if rowid > 0:
+                    count += 1
+                else:
+                    logging.error("Update failed: %s" % mf.relative_path)
+            
+    mdb.commit()
+
+    log("Updated %d files." % count)
+
 
 def do_single_dir(args):
     db_path = args.db_path
@@ -353,6 +416,8 @@ def do_single_dir(args):
         elif args.relpath:
             mdb.del_file(relpath=args.relpath)
             mdb.add_file(args.relpath)
+        elif args.update_time:
+            update_time_for_all_files(mdb, args.media_dir)
             
     if args.command == 'query':
         values = [args.filename, args.md5, args.relpath, args.exif_make]
@@ -383,7 +448,24 @@ def do_multi_dirs(args):
     right_mdb = MediaDatabase(right_db)
 
     if args.command == 'diff':
-        pass
+        left_items = left_mdb.iter()
+        for item in left_items:
+            if not right_mdb.get(
+                    middle_md5=item.middle_md5,
+                    file_size=item.file_size,
+                    create_time=item.create_time
+            ):
+                log('- %s %s' % (item.path, item.middle_md5))
+
+        right_items = right_mdb.iter()
+        for item in right_items:
+            if not left_mdb.get(
+                    middle_md5=item.middle_md5,
+                    file_size=item.file_size,
+                    create_time=item.create_time
+            ):
+                log('+ %s %s' % (item.path, item.middle_md5))
+        
 
 if __name__ == '__main__':
     args = parse_cmd_args()

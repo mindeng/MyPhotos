@@ -6,6 +6,15 @@ import datetime
 import os
 from myexif import get_exif_info
 import logging
+import re
+
+import sys
+sys.path.append(
+    os.path.abspath(
+        os.path.join(os.path.dirname(
+            os.path.realpath(__file__) ), '..') ))
+import utils
+from utils import *
 
 Tag_DateTimeOriginal = 'DateTimeOriginal'
 Tag_DateTimeDigitized = 'DateTimeDigitized'
@@ -33,7 +42,7 @@ def get_exif_time(exif_info):
         Tag_DateTime,
         Tag_CreateDate,
         Tag_ModifyDate,
-        Tag_FileModifyDate,
+        #Tag_FileModifyDate,
     ]
     for tag in TIME_TAGS:
         v = exif_info.get(tag)
@@ -78,12 +87,18 @@ class ExifInfo(object):
     def load(self, path):
         exif_info = None
         exif = None
+        lower_path = path.lower()
         
-        if path.lower().endswith('.jpg'):
-            exif_info = get_exif_info(path.encode('utf-8'))
+        if lower_path.endswith('.jpg'):
+            exif_info = get_exif_info(encode_text(path))
             exif = exif_info and json.loads(exif_info)
-            
-        exif = exif or get_exif_by_exiftool(path) or {}
+        elif lower_path.endswith('.png'):
+            # Ignore png files
+            pass
+        else:
+            exif = exif or get_exif_by_exiftool(path)
+
+        exif = exif or {}
         
         self.make = exif.get(Tag_Make)
         self.model = exif.get(Tag_Model)
@@ -110,7 +125,8 @@ class ExifInfo(object):
             self.create_time = parse_time_by_filename(path)
             if not self.create_time:
                 logging.error("Load create_time error: %s" % path)
-                self.create_time = get_file_time(path)
+                # file time has no meaning
+                # self.create_time = get_file_time(path)
 
     def __str__(self):
         return 'ExifInfo[%s, %s, %s, %s, %s, %s]' % \
@@ -118,32 +134,49 @@ class ExifInfo(object):
              self.gps_latitude, self.gps_longitude, self.gps_altitude)
 
 def parse_time_by_filename(path):
-    # try to parse file name as time, e.g. 20120607_061356
+    # try to parse file name as time, e.g.:
+    # 20120607_061356
+    # 2012-03-18 20.28.51.JPG
     ret = None
     name = os.path.basename(path)
     name = os.path.splitext(name)[0]
 
-    try:
-        if len(name) >= 15:
-            year = int(name[:4])
-            month = int(name[4:6])
-            day = int(name[6:8])
-            hour = int(name[9:11])
-            minute = int(name[11: 13])
-            second = int(name[13:15])
+    name = re.sub(r'[- .]', '_', name)
+    TIME_FORMATS = [
+        '%Y%m%d_%H%M%S',
+        '%Y_%m_%d_%H_%M_%S',
+    ]
 
-            if year >= 1900 \
-               and month >= 1 and month <= 12 \
-               and day >= 1 and day <= 31 \
-               and hour >= 0 and hour < 24 \
-               and minute >= 0 and minute < 60 \
-               and second >= 0 and second < 60:
-                ret = datetime.datetime(
-                    year=year, month=month, day=day,
-                    hour=hour, minute=minute, second=second
-                )
-    except ValueError:
-        pass
+    for fmt in TIME_FORMATS:
+        try:
+            ret = datetime.datetime.strptime(name, fmt)
+            break
+        except ValueError:
+            pass
+
+    return ret
+        
+    # try:
+    #     if len(name) >= 15:
+    #         year = int(name[:4])
+    #         month = int(name[4:6])
+    #         day = int(name[6:8])
+    #         hour = int(name[9:11])
+    #         minute = int(name[11: 13])
+    #         second = int(name[13:15])
+
+    #         if year >= 1900 \
+    #            and month >= 1 and month <= 12 \
+    #            and day >= 1 and day <= 31 \
+    #            and hour >= 0 and hour < 24 \
+    #            and minute >= 0 and minute < 60 \
+    #            and second >= 0 and second < 60:
+    #             ret = datetime.datetime(
+    #                 year=year, month=month, day=day,
+    #                 hour=hour, minute=minute, second=second
+    #             )
+    # except ValueError:
+    #     pass
 
     return ret
 
@@ -184,18 +217,41 @@ def get_exif_by_exiftool(filename):
 def get_file_time(path):
     return datetime.datetime.fromtimestamp(os.path.getctime(path))
 
+# check if there are some jpg files that can be extract time info
+# by exiftool but can not extract time info by myexif
+def check_get_time(path):
+    path = os.path.abspath(path)
+    for root, dirs, files in os.walk(path, topdown=True):
+        for name in files:
+            file_path = os.path.join(root, name)
+            if not file_path.lower().endswith('.jpg'):
+                continue
+                
+            exif = get_exif_info(encode_text(file_path))
+            if not exif:
+                exif = get_exif_by_exiftool(file_path)
+                if exif and get_exif_time(exif):
+                    print exif
+            
 if __name__ == '__main__':
     import sys
 
     path = sys.argv[1]
+
+    if os.path.isdir(path):
+        check_get_time(path)
+        exit(0)
+    
     print ExifInfo(path)
 
     import timeit
     def testit():
         ExifInfo(path)
-    print timeit.timeit('testit()',
-                  'from __main__ import testit',
-                  number=10)
+    # print timeit.timeit('testit()',
+    #               'from __main__ import testit',
+    #               number=10000)
 
     # exiftool: 10 times 1.38 seconds
     # myexif: 10000 times 0.97 seconds
+
+

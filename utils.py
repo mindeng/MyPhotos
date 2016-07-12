@@ -1,11 +1,11 @@
 import sys
 
 def log(s):
-    print s
+    print encode_text(s)
     sys.stdout.flush()
 
 def decode_text(text):
-    ret = None
+    ret = text
     try:
         try:
             if type(text) == type(''):
@@ -18,4 +18,6 @@ def decode_text(text):
     return ret
 
 def encode_text(text):
-    return text.encode('utf-8')
+    if type(text) == type(u''):
+        return text.encode('utf-8')
+    return text
