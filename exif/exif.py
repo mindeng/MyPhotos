@@ -5,6 +5,7 @@ import json
 import datetime
 import os
 from myexif import get_exif_info
+import logging
 
 Tag_DateTimeOriginal = 'DateTimeOriginal'
 Tag_DateTimeDigitized = 'DateTimeDigitized'
@@ -82,7 +83,7 @@ class ExifInfo(object):
             exif_info = get_exif_info(path.encode('utf-8'))
             exif = exif_info and json.loads(exif_info)
             
-        exif = exif or get_exif_by_exiftool(path)
+        exif = exif or get_exif_by_exiftool(path) or {}
         
         self.make = exif.get(Tag_Make)
         self.model = exif.get(Tag_Model)
@@ -101,17 +102,50 @@ class ExifInfo(object):
             self.gps_latitude = gps_text_to_degree(self.gps_latitude)
             self.gps_longitude = gps_text_to_degree(self.gps_longitude)
             self.gps_altitude = gps_text_to_metre(self.gps_altitude)
-        
-        if self.create_time:
+
+        try:
             self.create_time = datetime.datetime.strptime(
                 self.create_time[:19], ExifInfo.EXIF_TIME_FORMAT)
-        else:
-            self.create_time = get_file_time(path)
+        except (ValueError, TypeError) as e:
+            self.create_time = parse_time_by_filename(path)
+            if not self.create_time:
+                logging.error("Load create_time error: %s" % path)
+                self.create_time = get_file_time(path)
 
     def __str__(self):
         return 'ExifInfo[%s, %s, %s, %s, %s, %s]' % \
             (self.make, self.model, self.create_time,
              self.gps_latitude, self.gps_longitude, self.gps_altitude)
+
+def parse_time_by_filename(path):
+    # try to parse file name as time, e.g. 20120607_061356
+    ret = None
+    name = os.path.basename(path)
+    name = os.path.splitext(name)[0]
+
+    try:
+        if len(name) >= 15:
+            year = int(name[:4])
+            month = int(name[4:6])
+            day = int(name[6:8])
+            hour = int(name[9:11])
+            minute = int(name[11: 13])
+            second = int(name[13:15])
+
+            if year >= 1900 \
+               and month >= 1 and month <= 12 \
+               and day >= 1 and day <= 31 \
+               and hour >= 0 and hour < 24 \
+               and minute >= 0 and minute < 60 \
+               and second >= 0 and second < 60:
+                ret = datetime.datetime(
+                    year=year, month=month, day=day,
+                    hour=hour, minute=minute, second=second
+                )
+    except ValueError:
+        pass
+
+    return ret
 
 class ExifException(Exception):
 

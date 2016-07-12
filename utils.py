@@ -16,3 +16,6 @@ def decode_text(text):
         log('Failed to decode %s' % text)
         log(e)
     return ret
+
+def encode_text(text):
+    return text.encode('utf-8')
