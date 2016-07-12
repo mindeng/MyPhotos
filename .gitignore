@@ -1,4 +1,9 @@
 .*.swp
-db.sqlite3
+*.sqlite3
+*.bak
 *.pyc
 *.log
+exif/build
+*.o
+exif/sample
+
