@@ -340,9 +340,9 @@ def parse_cmd_args():
         help='File path to add or update.'
     )
     parser.add_argument(
-        '--update-time',
+        '--update-exif',
         action='store_true',
-        help='Update collumn time for all files.'
+        help='Update exif info for all media items in database.'
     )
 
     # args for diff
@@ -363,7 +363,7 @@ def parse_cmd_args():
 
     return args
 
-def update_time_for_all_files(mdb, media_dir):
+def update_exif_info(mdb, media_dir):
     count = 0
     for root, dirs, files in os.walk(media_dir, topdown=True):
         for name in files:
@@ -376,15 +376,31 @@ def update_time_for_all_files(mdb, media_dir):
             relative_path = mdb.relpath(file_path)
             mf = mdb.get(relative_path=relative_path)
             
-            if mf and mf.create_time == exif_info.create_time:
-                continue
-            elif mf:
-                # update
-                rowid = mdb.update(mf.id, create_time=exif_info.create_time)
+            if mf and \
+               (mf.create_time != exif_info.create_time or \
+                mf.make != exif_info.make):
+                # update exif info
+                rowid = mdb.update(
+                    mf.id,
+                    create_time=exif_info.create_time,
+                    exif_make=exif_info.make,
+                    exif_model=exif_info.model,
+                    gps_latitude=exif_info.gps_latitude,
+                    gps_longitude=exif_info.gps_longitude,
+                    gps_altitude=exif_info.gps_altitude,
+                    image_width=exif_info.image_width,
+                    image_height=exif_info.image_height,
+                    f_number=exif_info.f_number,
+                    exposure_time=exif_info.exposure_time,
+                    iso=exif_info.iso,
+                    focal_length_in_35mm=exif_info.focal_length_in_35mm
+                )
                 if rowid > 0:
                     count += 1
                 else:
                     logging.error("Update failed: %s" % mf.relative_path)
+            else:
+                continue
             
     mdb.commit()
 
@@ -416,8 +432,8 @@ def do_single_dir(args):
         elif args.relpath:
             mdb.del_file(relpath=args.relpath)
             mdb.add_file(args.relpath)
-        elif args.update_time:
-            update_time_for_all_files(mdb, args.media_dir)
+        elif args.update_exif:
+            update_exif_info(mdb, args.media_dir)
             
     if args.command == 'query':
         values = [args.filename, args.md5, args.relpath, args.exif_make]
