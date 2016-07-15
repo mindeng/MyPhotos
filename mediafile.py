@@ -2,7 +2,7 @@
 
 import os
 from exif import ExifInfo, PropertyDict
-from exif import calc_file_md5
+from exif import calc_middle_md5
 from hashlib import md5
 import json
 #import mmap
@@ -37,9 +37,24 @@ class MediaFile(PropertyDict):
     MIN_FILE_SIZE = 10 * 1024
     MD5_CONTENT_LEN = 10 * 1024
 
-    def _stringtify(self, copy):
-        if getattr(self, 'create_time', None):
-            copy['create_time'] = str(self.create_time)
+    def __getattr__(self, name):
+        # check if the name is in the exif info first
+        try:
+            _exif_info = super(MediaFile, self).__getattribute__('_exif_info')
+            return _exif_info[name]
+        except KeyError:
+            return super(MediaFile, self).__getattr__(name)
+
+    def __setattr__(self, name, value):
+        # check if the name is in the exif info first
+        if not name.startswith("_") and name in self._exif_info:
+            self._exif_info[name] = value
+        else:
+            super(MediaFile, self).__setattr__(name, value)
+
+    #def _stringtify(self, copy):
+    #    if getattr(self, 'create_time', None):
+    #        copy['create_time'] = str(self.create_time)
 
     def __init__(self, *parameters, **kwparameters):
         path = kwparameters.get("path")
@@ -52,7 +67,12 @@ class MediaFile(PropertyDict):
         else:
             # init from db row or empty dict
             super(MediaFile, self).__init__(*parameters, **kwparameters)
+
+            # Copy all exif info to self._exif_info, and delete all exif info
+            # fields from self, so we can make sure all exif info is
+            # getted/setted from self._exif_info
             self._exif_info = ExifInfo.from_dict(self)
+            [self.pop(k) for k in self.keys() if k in self._exif_info]
 
     # Load exif info, base file info & md5
     def load_from_path(self, path):
@@ -73,9 +93,9 @@ class MediaFile(PropertyDict):
         if not os.path.isfile(path):
             raise IllegalMediaFile("File not found: %s" % path)
 
-        self.path = path
-        self.filename = os.path.basename(path)
-        self.file_size = os.path.getsize(path)
+        self.path           = path
+        self.filename       = os.path.basename(path)
+        self.file_size      = os.path.getsize(path)
         self.file_extension = os.path.splitext(self.filename)[1].lower()
 
         #if self.file_size < MediaFile.MIN_FILE_SIZE:
@@ -98,9 +118,10 @@ class MediaFile(PropertyDict):
         # NOTE: c extension module can only handle encoded path
         path = encode_text(path)
 
-        offset = (self.file_size - MediaFile.MD5_CONTENT_LEN) / 2
-        length = MediaFile.MD5_CONTENT_LEN
-        digest = calc_file_md5(path, offset, length)
+        #offset = (self.file_size - MediaFile.MD5_CONTENT_LEN) / 2
+        #length = MediaFile.MD5_CONTENT_LEN
+
+        digest = calc_middle_md5(path)
         self.middle_md5 = ''.join('{:02x}'.format(ord(x)) for x in digest)
 
         #content = quick_read(self.path.encode('utf-8'), offset, length)
@@ -114,6 +135,17 @@ class MediaFile(PropertyDict):
         #     self.middle_md5 = md5(content).hexdigest()
         #     mm.close()
 
+    def __eq__(self, o):
+        return \
+                self.path           == o.path           and \
+                self.filename       == o.filename       and \
+                self.file_size      == o.file_size      and \
+                self.file_extension == o.file_extension and \
+                self.middle_md5     == o.middle_md5     and \
+                self._exif_info     == o._exif_info
+
+    def __ne__(self, o):
+        return not self.__eq__(o)
 
 class IllegalMediaFile(Exception):
 
@@ -122,11 +154,11 @@ class IllegalMediaFile(Exception):
 
 if __name__ == '__main__':
     path = '/Users/min/Pictures/DSC_0001.JPG'
-    print MediaFile(path, None)
+    print MediaFile(path=path, relative_path=None)
 
     import timeit
     def testit():
-        MediaFile(path, None)
+        MediaFile(path=path, relative_path=None)
     print timeit.timeit('testit()',
                   'from __main__ import testit',
                   number=100)

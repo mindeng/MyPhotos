@@ -1,5 +1,5 @@
 from exif import ExifInfo, PropertyDict
-from myexif import calc_file_md5
+from myexif import calc_middle_md5
 
 import sys
 import os

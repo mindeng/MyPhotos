@@ -155,6 +155,14 @@ class MediaDatabase(object):
               self._make_where_clause(kwparameters)
         self._execute(self._cursor(), sql, None, kwparameters)
 
+    def del_mf(self, mf):
+        self.del_file(middle_md5=mf.middle_md5)
+
+    def update_mf(self, mf):
+        kwparameters = dict(mf)
+        kwparameters.update(mf._exif_info)
+        self.update(mf.id, **kwparameters)
+
     # Return path relatived with db dir
     def relpath(self, path):
         # NOTE: Make sure the path & self._db_dir are all encoded or all decoded, or
@@ -195,6 +203,9 @@ class MediaDatabase(object):
 
         return True
 
+    def add_mf(self, mf):
+        return self._save(mf)
+
     def add_file(self, path):
         if not os.path.isabs(path):
             path = os.path.abspath(path)
@@ -209,7 +220,7 @@ class MediaDatabase(object):
             
         log("+ %s" % relative_path)
         
-        mf = MediaFile(path, relative_path)
+        mf = MediaFile(path=path, relative_path=relative_path)
         return self._save(mf)
 
     def build(self, path):

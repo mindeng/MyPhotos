@@ -459,6 +459,8 @@ int easyexif::EXIFInfo::parseFrom(const unsigned char *buf, unsigned len) {
     return PARSE_EXIF_ERROR_CORRUPT;
   offs += 2;
 
+  printf("offset:%d\n", offs);
+
   return parseFromEXIFSegment(buf + offs, len - offs);
 }
 
@@ -831,6 +833,10 @@ int easyexif::EXIFInfo::parseFromEXIFSegment(const unsigned char *buf,
       offs += 12;
     }
   }
+
+  printf("exif_sub_ifd_offset:%d\n", exif_sub_ifd_offset);
+  printf("gps_sub_ifd_offset:%d\n", gps_sub_ifd_offset);
+  printf("offset:%d\n", offs);
 
   return PARSE_EXIF_SUCCESS;
 }

@@ -22,24 +22,6 @@
 
 extern const std::string get_exif_info(const char* path);
 
-static void md5(const char* data, int length, unsigned char out[16]) {
-    MD5_CTX c;
-
-    MD5_Init(&c);
-
-    while (length > 0) {
-        if (length > 512) {
-            MD5_Update(&c, data, 512);
-        } else {
-            MD5_Update(&c, data, length);
-        }
-        length -= 512;
-        data += 512;
-    }
-
-    MD5_Final(out, &c);
-}
-
 static char* map_file(const char* path, unsigned int* size)
 {
     int fd;
@@ -85,40 +67,71 @@ static void unmap_file(char *mapped, unsigned int size)
     }  
 }
 
-
-static void quick_read(const char* path, unsigned int offset,
-		       unsigned int size, char* out)
+static void md5_update(MD5_CTX& c, const char* data, int length)
 {
+    while (length > 0) {
+        if (length > 512) {
+            MD5_Update(&c, data, 512);
+        } else {
+            MD5_Update(&c, data, length);
+        }
+        length -= 512;
+        data += 512;
+    }
+}
+
+static void calc_middle_md5(const char* path, unsigned char* out)
+{
+    const int MD5_HEAD_SIZE = 24 * 1024;
+    const int MD5_MIDDLE_SIZE = 8 * 1024;
+    const int MD5_TAIL_SIZE = 8 * 1024;
+
     unsigned int total_size = 0;
     char *buf = map_file(path, &total_size);
     
     if (buf != NULL) {
-	memcpy(out, buf + offset, size);
-	unmap_file(buf, total_size);
+        MD5_CTX c;
+        int size = 0;
+        const char* data = buf;
+
+        MD5_Init(&c);
+
+        if (total_size <= 48 * 1024) {
+            // calc all
+            md5_update(c, data, total_size);
+        }
+        else {
+            // calc for head
+            size = MD5_HEAD_SIZE;
+            md5_update(c, data, size);
+
+            // calc for middle
+            size = MD5_MIDDLE_SIZE;
+            data = buf + (size - MD5_MIDDLE_SIZE) / 2;
+            md5_update(c, data, size);
+
+            // calc for tail
+            size = MD5_TAIL_SIZE;
+            data = buf + total_size - size;
+            md5_update(c, data, size);
+        }
+
+        MD5_Final(out, &c);
+        unmap_file(buf, total_size);
     }
 }
 
 static PyObject *
-myexif_calc_file_md5(PyObject *self, PyObject *args)
+myexif_calc_middle_md5(PyObject *self, PyObject *args)
 {
     const char *path;
-    unsigned int offset;
-    unsigned int size;
-    char* data;
     const int DIGEST_LEN = 16;
     unsigned char digest[DIGEST_LEN];
 
-    if (!PyArg_ParseTuple(args, "sII", &path, &offset, &size))
+    if (!PyArg_ParseTuple(args, "s", &path))
         return NULL;
 
-    if (size <= 0 || size > 10 * 1024 * 1024) {
-	return NULL;
-    }
-
-    data = new char[size];
-    quick_read(path, offset, size, data);
-    md5(data, size, digest);
-    delete[] data;
+    calc_middle_md5(path, digest);
     
     return Py_BuildValue("s#", digest, DIGEST_LEN);
 }
@@ -149,8 +162,8 @@ static PyMethodDef myexif_methods[] = {
   },
 
   {
-      "calc_file_md5",
-      (PyCFunction)myexif_calc_file_md5,
+      "calc_middle_md5",
+      (PyCFunction)myexif_calc_middle_md5,
       METH_VARARGS | METH_KEYWORDS,
       "Calculate md5 for file."
   },

@@ -73,6 +73,11 @@ def parse_cmd_args():
         action='store_true',
         help='Query media files which create time is empty.'
     )
+    parser.add_argument(
+        '--all',
+        action='store_true',
+        help='Query all media files.'
+        )
 
     # args for specified operation file
     parser.add_argument(
@@ -153,15 +158,9 @@ def parse_cmd_args():
 
     return args
 
-def reload_exif_info_for_file(mdb, path, dry_run):
-    if not MediaDatabase.is_valid_media_file(path):
-        return False
-        
-    relative_path = mdb.relpath(path)
-    mf = mdb.get(relative_path=relative_path)
-    return reload_exif_info_for_mf(mdb, mf, dry_run)
+### operation functions for update command ###
 
-def reload_md5_for_mf(mdb, mf, dry_run):
+def op_reload_md5(mdb, args, mf, dry_run):
     if not mf:
         return False
 
@@ -197,7 +196,7 @@ def reload_md5_for_mf(mdb, mf, dry_run):
             )
     return True
 
-def reload_exif_info_for_mf(mdb, mf, dry_run):
+def op_reload_exif(mdb, args, mf, dry_run):
     if not mf:
         return False
 
@@ -232,71 +231,83 @@ def reload_exif_info_for_mf(mdb, mf, dry_run):
             )
     return True
 
-def reload_exif_info_for_dir(mdb, media_dir, dry_run):
-    count = 0
-    for root, dirs, files in os.walk(media_dir, topdown=True):
-        for name in files:
-            file_path = os.path.join(root, name)
-            if reload_exif_info_for_file(mdb, file_path, dry_run):
-                count += 1
-                #log("Updated %s" % mdb.relpath(file_path))
-            
-    mdb.commit()
+def op_reload(mdb, args, mf, dry_run):
+    new_mf = MediaFile(path=mdb.abspath(mf.relative_path), relative_path=mf.relative_path)
+    if mf == new_mf:
+        return False
 
-    log("Updated %d files." % count)
+    log("Updating: %s" % mdb.abspath(mf.relative_path))
+    log("old: %s" % mf)
+    log("new: %s" % new_mf)
 
+    if dry_run:
+        return True
 
-def parse_gps_values(text):
-    gps_values = re.split(r'[, ]', text)
-    return [float(v) if v else None for v in gps_values]
+    # udpate all info for the specified item
+    mdb.update_mf(mf)
+
+def op_update_gps(mdb, args, mf, dry_run):
+    gps_values = parse_gps_values(args.update_gps)
+
+    if \
+            mf.gps_latitude     == gps_values[0] and \
+            mf.gps_longitude    == gps_values[1] and \
+            mf.gps_altitude     == gps_values[2] :
+        return False
+
+    log("Updating: %s" % mdb.abspath(mf.relative_path))
+    log("old: %s" % mf._exif_info)
+
+    mf.gps_latitude     = gps_values[0];
+    mf.gps_longitude    = gps_values[1];
+    mf.gps_altitude     = gps_values[2];
+
+    log("new: %s" % mf._exif_info)
+
+    mdb.update_mf(mf)
+
+### do command functions ###
 
 def do_update(mdb, args):
     mf = None
     dry_run = args.dry
-    
-    if args.path:
-        if os.path.isdir(args.path) and args.reload_exif:
-            reload_exif_info_for_dir(mdb, args.media_dir, dry_run)
-            exit(0)
-        else:
-            mf = mdb.get(relative_path=mdb.relpath(args.path))
-    elif args.relpath:
-        mf = mdb.get(relative_path=args.relpath)
-    elif args.md5:
-        mf = mdb.get(middle_md5=args.md5)
 
-    if mf is None:
-        print "Can't find the specified item in the media database."
-        exit(1)
+    action_ops = {
+            "reload": op_reload,
+            "reload_exif": op_reload_exif,
+            "reload_md5": op_reload_md5,
+            "update_gps": op_update_gps,
+            }
 
-    updated = False
-        
-    if args.reload:
-        # udpate all info for the specified item
-        mdb.del_file(relative_path=mf.relative_path)
-        mdb.add_file(mdb.abspath(mf.relative_path))
-        updated = True
-    elif args.reload_exif:
-        updated = reload_exif_info_for_mf(mdb, mf, dry_run)
-    elif args.reload_md5:
-        updated = reload_md5_for_mf(mdb, mf, dry_run)
-    elif args.update_gps:
-        gps_values = parse_gps_values(text)
-        mdb.update(mf.id,
-                   gps_latitude=gps_values[0],
-                   gps_longitude=gps_values[1],
-                   gps_altitude=gps_values[2]
-        )
-        updated = True
+    update_op = None
+    for k, v in action_ops.iteritems():
+        if getattr(args, k, False):
+            update_op = v
 
-    mdb.commit()
-    if updated:
-        mf = mdb.get(relative_path=mf.relative_path)
-        log("Updated media file:\n%s" % mf)
-    else:
-        log("Nothing to update.")
+    if update_op:
+        it = query_by_args(mdb, args)
+
+        count = 0
+        success_count = 0
+        for mf in it:
+            count += 1
+            if update_op(mdb, args, mf, dry_run):
+                success_count += 1
+
+        mdb.commit()
+
+        log("Found %d file%s, %d updated." % (count, 's' if count>1 else '', success_count))
 
 def do_query(mdb, args):
+    it = query_by_args(mdb, args)
+
+    count = 0
+    for item in it:
+        print item
+        count += 1
+    log('Found %d file%s.' % (count, 's' if count>1 else ''))
+
+def query_by_args(mdb, args):
     values = [args.filename, args.md5, args.relpath, args.exif_make, args.path]
     keys = ["filename", "middle_md5", "relative_path", "exif_make", "path"]
 
@@ -309,7 +320,8 @@ def do_query(mdb, args):
         if not values[i]:
             keys[i] = None
         elif keys[i] == 'path':
-            # convert abstract path to relative path, so that the file can be found even if the root directory changed
+            # Convert abstract path to relative path, so that the file
+            # can be found even if the root directory changed
             keys[i] = "relative_path"
             values[i] = mdb.relpath(args.path)
 
@@ -330,18 +342,12 @@ def do_query(mdb, args):
         keys += ['create_time']
         values += [None]
 
-    # Query all media files if no query condition
-    #if values == []:
-    #    log("Please specify a query condition.")
-    #    exit(1)
+    # If no query is specified, return empty result
+    if not args.all and not keys:
+        return []
 
     kwparameters = dict(zip(keys, values))
-    it = mdb.iter(**kwparameters)
-    count = 0
-    for item in it:
-        print item
-        count += 1
-    print 'Found %d files.' % count
+    return mdb.iter(**kwparameters)
 
 def do_single_dir(args):
     if args.command != 'build' and not os.path.isfile(args.db_path):
@@ -393,6 +399,10 @@ def do_multi_dirs(args):
             ):
                 log('+ %s %s' % (item.path, item.middle_md5))
         
+
+def parse_gps_values(text):
+    gps_values = re.split(r'[, ]', text)
+    return [float(v) if v else None for v in gps_values]
 
 if __name__ == '__main__':
     args = parse_cmd_args()

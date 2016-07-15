@@ -31,6 +31,8 @@ THE SOFTWARE.
 #include <stack>
 #include <algorithm>
 
+#include <cstdlib>
+
 namespace Jzon
 {
 	class FormatInterpreter
@@ -256,10 +258,11 @@ namespace Jzon
 	{
 		if (IsNumber())
 		{
-			std::stringstream sstr(valueStr);
-			double val;
-			sstr >> val;
-			return val;
+			// std::stringstream sstr(valueStr);
+			// double val;
+			// sstr >> val;
+			// return val;
+		    return atof(valueStr.c_str());
 		}
 		else
 		{
@@ -315,17 +318,21 @@ namespace Jzon
 	}
 	void Value::Set(const float value)
 	{
-		std::stringstream sstr;
-		sstr << value;
-		valueStr = sstr.str();
-		type     = VT_NUMBER;
+		// std::stringstream sstr;
+		// sstr.precision(9);
+		// sstr << value;
+		// valueStr = sstr.str();
+	    valueStr = std::to_string(value);
+	    type     = VT_NUMBER;
 	}
 	void Value::Set(const double value)
 	{
-		std::stringstream sstr;
-		sstr << value;
-		valueStr = sstr.str();
-		type     = VT_NUMBER;
+		// std::stringstream sstr;
+		// sstr.precision(9);
+		// sstr << value;
+		// valueStr = sstr.str();
+	    valueStr = std::to_string(value);
+	    type     = VT_NUMBER;
 	}
 	void Value::Set(const bool value)
 	{
