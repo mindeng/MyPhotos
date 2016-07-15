@@ -67,9 +67,20 @@ class MediaDatabase(object):
         else:
             return None, None
 
+    IS_NOT_NULL = (True,)
+
     def _execute(self, cursor, sql, parameters=None, kwparameters=None):
+        # Remove placeholder values, e.g.: IS_NOT_NULL
+        if kwparameters:
+            kwparameters = dict(( (k,v) for k,v in kwparameters.items() if type(v) != type([]) ))
+        elif parameters:
+            try:
+                parameters.remove(MediaDatabase.IS_NOT_NULL)
+            except ValueError:
+                pass
+
         try:
-            if (parameters and kwparameters) is None:
+            if not (parameters or kwparameters):
                 return cursor.execute(sql)
             else:
                 parameters, kwparameters = self._decode_values(parameters, kwparameters)
@@ -86,8 +97,10 @@ class MediaDatabase(object):
         return [MediaFile(zip(column_names, row)) for row in cursor]
 
     def _make_where_clause(self, kv):
-        return ' and '.join(('%s=:%s'%(k,k) if v is not None else
-                             '%s is null'%k
+        return ' and '.join(('%s=:%s'%(k,k) 
+            if (v is not None and v != MediaDatabase.IS_NOT_NULL) 
+            else '%s is %s' % (k, 
+                'not null' if v == MediaDatabase.IS_NOT_NULL else 'null')
                              for k, v in kv.items()))
 
     def _make_set_clause(self, kv):

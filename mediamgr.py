@@ -45,6 +45,16 @@ def parse_cmd_args():
     parser.add_argument('--exif-make',
                         help='Query by exif make info'
     )
+    parser.add_argument(
+        '--gps',
+        help='Query by gps info. gps info is specified in format "latitude,longtitude,altitude".'
+    )
+    parser.add_argument(
+        '--has-gps',
+        dest='has_gps',
+        action='store_true',
+        help='Query media files which gps info is not empty".'
+    )
 
     # args for specified operation file
     parser.add_argument(
@@ -76,7 +86,8 @@ def parse_cmd_args():
     )
     parser.add_argument(
         '--update-gps',
-        help='Set gps for the specified media file.'
+        dest='update_gps',
+        help='Set gps for the specified media file. gps info is specified in format "latitude,longtitude,altitude".'
     )
     parser.add_argument(
             '--dry',
@@ -216,6 +227,11 @@ def reload_exif_info_for_dir(mdb, media_dir, dry_run):
 
     log("Updated %d files." % count)
 
+
+def parse_gps_values(text):
+    gps_values = re.split(r'[, ]', text)
+    return [float(v) if v else None for v in gps_values]
+
 def do_update(mdb, args):
     mf = None
     dry_run = args.dry
@@ -247,8 +263,7 @@ def do_update(mdb, args):
     elif args.reload_md5:
         updated = reload_md5_for_mf(mdb, mf, dry_run)
     elif args.update_gps:
-        gps_values = re.split(r'[, ]', args.update_gps)
-        gps_values = [float(v) if v else None for v in gps_values]
+        gps_values = parse_gps_values(text)
         mdb.update(mf.id,
                    gps_latitude=gps_values[0],
                    gps_longitude=gps_values[1],
@@ -262,6 +277,42 @@ def do_update(mdb, args):
         log("Updated media file:\n%s" % mf)
     else:
         log("Nothing to update.")
+
+def do_query(mdb, args):
+    values = [args.filename, args.md5, args.relpath, args.exif_make, args.path]
+    keys = ["filename", "middle_md5", "relative_path", "exif_make", "path"]
+
+    if args.gps:
+        gps_values = parse_gps_values(args.gps)
+        values += gps_values
+        keys += ['gps_latitude', 'gps_longitude', 'gps_altitude']
+
+    for i in xrange(len(values)):
+        if not values[i]:
+            keys[i] = None
+        elif keys[i] == 'path':
+            # convert abstract path to relative path, so that the file can be found even if the root directory changed
+            keys[i] = "relative_path"
+            values[i] = mdb.relpath(args.path)
+
+    keys = filter(None, keys)
+    values = filter(None, values)
+    
+    if args.has_gps:
+        keys += ['gps_latitude']
+        values += [MediaDatabase.IS_NOT_NULL]
+
+    if values == []:
+        log("Please specify a query condition.")
+        exit(1)
+
+    kwparameters = dict(zip(keys, values))
+    it = mdb.iter(**kwparameters)
+    count = 0
+    for item in it:
+        print item
+        count += 1
+    print 'Found %d files.' % count
 
 def do_single_dir(args):
     if args.command != 'build' and not os.path.isfile(args.db_path):
@@ -281,30 +332,7 @@ def do_single_dir(args):
         do_update(mdb, args)
 
     if args.command == 'query':
-        values = [args.filename, args.md5, args.relpath, args.exif_make, args.path]
-        keys = ["filename", "middle_md5", "relative_path", "exif_make", "path"]
-        for i in xrange(len(values)):
-            if not values[i]:
-                keys[i] = None
-            elif keys[i] == 'path':
-                # convert abstract path to relative path, so that the file can be found even if the root directory changed
-                keys[i] = "relative_path"
-                values[i] = mdb.relpath(args.path)
-
-        keys = filter(None, keys)
-        values = filter(None, values)
-
-        if values == []:
-            log("Please specify a query condition.")
-            exit(1)
-
-        kwparameters = dict(zip(keys, values))
-        it = mdb.iter(**kwparameters)
-        count = 0
-        for item in it:
-            print item
-            count += 1
-        print 'Found %d files.' % count
+        do_query(mdb, args)
 
 def do_multi_dirs(args):
     left_db = os.path.join(args.left, _DB_FILE)
