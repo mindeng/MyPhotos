@@ -40,4 +40,7 @@ def link_so():
     print 'ln -s %s %s' % (so_abspath, dst)
     os.symlink(so_abspath, dst)
 
-link_so()
+try:
+    link_so()
+except OSError:
+    pass
