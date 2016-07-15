@@ -40,7 +40,9 @@ def link_so():
     print 'ln -s %s %s' % (so_abspath, dst)
     os.symlink(so_abspath, dst)
 
-try:
-    link_so()
-except OSError:
-    pass
+import sys
+if len(sys.argv) > 1 and sys.argv[1] == 'build':
+    try:
+        link_so()
+    except OSError:
+        pass
