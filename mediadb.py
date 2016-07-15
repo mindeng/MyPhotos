@@ -158,10 +158,14 @@ class MediaDatabase(object):
     def del_mf(self, mf):
         self.del_file(middle_md5=mf.middle_md5)
 
-    def update_mf(self, mf):
+    def update_mf(self, id, mf):
         kwparameters = dict(mf)
         kwparameters.update(mf._exif_info)
-        self.update(mf.id, **kwparameters)
+        try:
+            del kwparameters['id']
+        except KeyError:
+            pass
+        self.update(id, **kwparameters)
 
     # Return path relatived with db dir
     def relpath(self, path):

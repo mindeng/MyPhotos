@@ -52,9 +52,9 @@ class MediaFile(PropertyDict):
         else:
             super(MediaFile, self).__setattr__(name, value)
 
-    #def _stringtify(self, copy):
-    #    if getattr(self, 'create_time', None):
-    #        copy['create_time'] = str(self.create_time)
+    def _stringtify(self, copy):
+        copy['exif'] = self._exif_info
+        copy['exif'].create_time = str(copy['exif'].create_time)
 
     def __init__(self, *parameters, **kwparameters):
         path = kwparameters.get("path")
@@ -62,6 +62,7 @@ class MediaFile(PropertyDict):
         if path:
             # init from path
             super(MediaFile, self).__init__()
+            self._exif_info = ExifInfo()
             self.relative_path = relative_path
             self.load_from_path(path)
         else:

@@ -244,7 +244,8 @@ def op_reload(mdb, args, mf, dry_run):
         return True
 
     # udpate all info for the specified item
-    mdb.update_mf(mf)
+    mdb.update_mf(mf.id, new_mf)
+    return True
 
 def op_update_gps(mdb, args, mf, dry_run):
     gps_values = parse_gps_values(args.update_gps)
@@ -264,7 +265,11 @@ def op_update_gps(mdb, args, mf, dry_run):
 
     log("new: %s" % mf._exif_info)
 
-    mdb.update_mf(mf)
+    if dry_run:
+        return True
+
+    mdb.update_mf(mf.id, mf)
+    return True
 
 ### do command functions ###
 
