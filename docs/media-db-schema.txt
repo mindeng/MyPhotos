@@ -16,6 +16,7 @@ f_number
 exposure_time
 iso
 focal_length_in_35mm
+duration
 middle_md5
 tags
 description

@@ -1,8 +1,10 @@
 #! /usr/bin/env python
 
 import os
-from exif import ExifInfo, quick_read
+from exif import ExifInfo, PropertyDict
+from exif import calc_file_md5
 from hashlib import md5
+import json
 #import mmap
 from utils import *
 
@@ -17,7 +19,7 @@ _IMAGE_EXTS = set([
     '.arw',
     # nikon raw file
     '.nef',
-    ])
+    ])  
 
 _VIDEO_EXTS = set([
     # Video files
@@ -25,9 +27,9 @@ _VIDEO_EXTS = set([
     '.mp4',
     '.mov',
     '.m4v'
-        ])
+    ])  
 
-class MediaFile(object):
+class MediaFile(PropertyDict):
     MEDIA_UNKNOWN = 0
     MEDIA_IMAGE = 'image'
     MEDIA_VIDEO = 'video'
@@ -35,95 +37,51 @@ class MediaFile(object):
     MIN_FILE_SIZE = 10 * 1024
     MD5_CONTENT_LEN = 10 * 1024
 
-    @property
-    def create_time(self):
-        return self.exif_info.create_time
+    def _stringtify(self, copy):
+        if getattr(self, 'create_time', None):
+            copy['create_time'] = str(self.create_time)
 
-    @property
-    def exif_make(self):
-        return self.exif_info.make
-
-    @property
-    def exif_model(self):
-        return self.exif_info.model
-
-    @property
-    def gps_latitude(self):
-        return self.exif_info.gps_latitude
-
-    @property
-    def gps_longitude(self):
-        return self.exif_info.gps_longitude
-
-    @property
-    def gps_altitude(self):
-        return self.exif_info.gps_altitude
-
-    @property
-    def image_width(self):
-        return self.exif_info.image_width
-
-    @property
-    def image_height(self):
-        return self.exif_info.image_height
-
-    @property
-    def f_number(self):
-        return self.exif_info.f_number
-
-    @property
-    def exposure_time(self):
-        return self.exif_info.exposure_time
-
-    @property
-    def iso(self):
-        return self.exif_info.iso
-
-    @property
-    def focal_length_in_35mm(self):
-        return self.exif_info.focal_length_in_35mm
-
-    def __init__(self, path=None, relative_path=None, row=None):
+    def __init__(self, *parameters, **kwparameters):
+        path = kwparameters.get("path")
+        relative_path = kwparameters.get("relative_path")
         if path:
-            self._init_with_path(path, relative_path)
-        elif row:
-            self._init_with_row(row)
+            # init from path
+            super(MediaFile, self).__init__()
+            self.relative_path = relative_path
+            self.load_from_path(path)
+        else:
+            # init from db row or empty dict
+            super(MediaFile, self).__init__(*parameters, **kwparameters)
+            self._exif_info = ExifInfo.from_dict(self)
 
-    def _init_with_row(self, row):
-        self._row = row
+    # Load exif info, base file info & md5
+    def load_from_path(self, path):
+        self.load_exif_info(path)
+        self.load_file_info(path)
 
-    def _init_with_path(self, path, relative_path):
-        path = decode_text(path)
-        relative_path = decode_text(relative_path)
-        
+        # init user info
+        self.tags = ''
+        self.description = ''
+
+    # Load base file info & md5
+    def load_file_info(self, path):
+        self.load_base_file_info(path)
+        self.load_md5(path)
+
+    # Only load base file info
+    def load_base_file_info(self, path):
         if not os.path.isfile(path):
             raise IllegalMediaFile("File not found: %s" % path)
 
         self.path = path
         self.filename = os.path.basename(path)
-        self.relative_path = relative_path
         self.file_size = os.path.getsize(path)
-
-        if self.file_size < MediaFile.MIN_FILE_SIZE:
-            raise IllegalMediaFile(
-                "File size is too small: " + self.file_size)
-        
         self.file_extension = os.path.splitext(self.filename)[1].lower()
 
-        self.load_media_type()
-        self.load_exif_info()
-        self.load_md5()
+        #if self.file_size < MediaFile.MIN_FILE_SIZE:
+        #    raise IllegalMediaFile(
+        #        "File size is too small: " + self.file_size)
 
-        self.tags = ''
-        self.description = ''
-
-    @classmethod
-    def is_media_file(cls, path):
-        extension = os.path.splitext(path)[1].lower()
-        return extension in _IMAGE_EXTS or \
-            extension in _VIDEO_EXTS
-
-    def load_media_type(self):
         if self.file_extension in _IMAGE_EXTS:
             self.media_type = MediaFile.MEDIA_IMAGE
         elif self.file_extension in _VIDEO_EXTS:
@@ -131,15 +89,22 @@ class MediaFile(object):
         else:
             self.media_type = MediaFile.MEDIA_UNKNOWN
 
-    def load_exif_info(self):
-        self.exif_info = ExifInfo(self.path)
+    # Only load exif info
+    def load_exif_info(self, path):
+        self._exif_info = ExifInfo(path)
 
-    def load_md5(self):
+    # Only load md5
+    def load_md5(self, path):
+        # NOTE: c extension module can only handle encoded path
+        path = encode_text(path)
+
         offset = (self.file_size - MediaFile.MD5_CONTENT_LEN) / 2
         length = MediaFile.MD5_CONTENT_LEN
+        digest = calc_file_md5(path, offset, length)
+        self.middle_md5 = ''.join('{:02x}'.format(ord(x)) for x in digest)
 
-        content = quick_read(self.path.encode('utf-8'), offset, length)
-        self.middle_md5 = md5(content).hexdigest()
+        #content = quick_read(self.path.encode('utf-8'), offset, length)
+        #self.middle_md5 = md5(content).hexdigest()
         
         # with open(self.path, "r+b") as f:
         #     # memory-map the file, size 0 means whole file
@@ -148,11 +113,6 @@ class MediaFile(object):
         #     content = mm.read(length)
         #     self.middle_md5 = md5(content).hexdigest()
         #     mm.close()
-
-    def __str__(self):
-        return 'MediaFile[%s, %s, %s]' % (
-            self.relative_path, self.middle_md5, self.exif_info)
-
 
 
 class IllegalMediaFile(Exception):

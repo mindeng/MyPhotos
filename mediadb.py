@@ -5,21 +5,30 @@ from mediafile import MediaFile
 from utils import *
 import os
 import logging
-from exif import ExifInfo
+import re
+import json
 
 MIN_FILE_SIZE = 10 * 1024
 TYPE_IMAGE, TYPE_VIDEO = 'image', 'video'
+_LAST_DB_VERSION = 1
 
-class Row(dict):
-    """A dict that allows for object-like property access syntax."""
-    def __getattr__(self, name):
-        try:
-            return self[name]
-        except KeyError:
-            raise AttributeError(name)
-
-    # def save(self):
-    #     self._db.update(self.id, self)
+#class Row(dict):
+#    """A dict that allows for object-like property access syntax."""
+#    def __getattr__(self, name):
+#        try:
+#            return self[name]
+#        except KeyError:
+#            raise AttributeError(name)
+#
+#    # def save(self):
+#    #     self._db.update(self.id, self)
+#
+#    def __str__(self):
+#        return json.dumps(
+#            self,
+#            sort_keys=True,
+#            indent=4, separators=(',', ': '),
+#            ensure_ascii=False).encode('utf-8')
     
 
 class MediaDatabase(object):
@@ -45,19 +54,36 @@ class MediaDatabase(object):
             self._db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         # self._db.row_factory = dict_factory
 
-    def _execute(self, cursor, query, parameters, kwparameters):
+    # NOTE: Make sure the value pass into sqlite3 is decoded or sqlite3 will raise
+    # exception: sqlite3.ProgrammingError: You must not use 8-bit bytestrings
+    # unless you use a text_factory that can interpret 8-bit bytestrings (like
+    # text_factory = str). 
+    def _decode_values(self, parameters, kwparameters):
+        if kwparameters:
+            return None, dict((k, decode_text(v)) for k, v in
+                    kwparameters.iteritems())
+        elif parameters:
+            return (decode_text(v) for v in parameters), None
+        else:
+            return None, None
+
+    def _execute(self, cursor, sql, parameters=None, kwparameters=None):
         try:
-            return cursor.execute(query, kwparameters or parameters)
+            if (parameters and kwparameters) is None:
+                return cursor.execute(sql)
+            else:
+                parameters, kwparameters = self._decode_values(parameters, kwparameters)
+                return cursor.execute(sql, kwparameters or parameters)
         except Exception:
             self.close()
             raise
         
-    def _query(self, query, *parameters, **kwparameters):
-        """Returns a row list for the given query and parameters."""
-        cursor = self._cursor
-        self._execute(cursor, query, parameters, kwparameters)
+    def _query(self, sql, *parameters, **kwparameters):
+        """Returns a row list for the given sql and parameters."""
+        cursor = self._cursor()
+        self._execute(cursor, sql, parameters, kwparameters)
         column_names = [d[0] for d in cursor.description]
-        return [Row(zip(column_names, row)) for row in cursor]
+        return [MediaFile(zip(column_names, row)) for row in cursor]
 
     def _make_where_clause(self, kv):
         return ' and '.join(('%s=:%s'%(k,k) if v is not None else
@@ -65,39 +91,38 @@ class MediaDatabase(object):
                              for k, v in kv.items()))
 
     def _make_set_clause(self, kv):
-        return ' and '.join(('%s=:%s'%(k,k) for k in kv))
+        return ','.join(('%s=:%s'%(k,k) for k in kv))
 
     def update(self, id, **kwparameters):
         if kwparameters:
-            query = "update medias set %s where id=:id" % \
+            sql = "update medias set %s where id=:id" % \
                     self._make_set_clause(kwparameters)
             kwparameters["id"] = id
         else:
             return -1
-        cursor = self._cursor
-        rowid = self._execute(cursor, query, None, kwparameters)
-        return rowid
+        cursor = self._cursor()
+        self._execute(cursor, sql, None, kwparameters)
 
     def iter(self, *parameters, **kwparameters):
-        """Returns an iterator for the given query and parameters."""
+        """Returns an iterator for the media items specified by the kwparameters."""
         if kwparameters:
-            query = "select * from medias where %s" % \
+            sql = "select * from medias where %s" % \
                     self._make_where_clause(kwparameters)
         else:
-            query = "select * from medias"
-        cursor = self._cursor
-        self._execute(cursor, query, parameters, kwparameters)
+            sql = "select * from medias"
+        cursor = self._cursor()
+        self._execute(cursor, sql, parameters, kwparameters)
         column_names = [d[0] for d in cursor.description]
         for row in cursor:
-            yield Row(zip(column_names, row))
+            yield MediaFile(zip(column_names, row))
 
     def query(self, *parameters, **kwparameters):
-        query = "select * from medias where %s" % \
+        sql = "select * from medias where %s" % \
                 self._make_where_clause(kwparameters)
-        return self._query(query, *parameters, **kwparameters)
+        return self._query(sql, *parameters, **kwparameters)
 
     def get(self, *parameters, **kwparameters):
-        """Returns the (singular) row returned by the given query.
+        """Returns the (singular) row specified by the given kwparameters.
         If the query has no results, returns None.  If it has
         more than one result, raises an exception.
         """
@@ -115,10 +140,23 @@ class MediaDatabase(object):
     def del_file(self, **kwparameters):
         sql = 'delete from medias where %s' % \
               self._make_where_clause(kwparameters)
-        self._execute(self._cursor, sql, None, kwparameters)
+        self._execute(self._cursor(), sql, None, kwparameters)
 
+    # Return path relatived with db dir
     def relpath(self, path):
-        return decode_text(os.path.relpath(path, self._db_dir))
+        # NOTE: Make sure the path & self._db_dir are all encoded or all decoded, or
+        # the os.path.relpath will raise UnicodeDecodeError.
+        if not os.path.isabs(path):
+            raise Exception("%s is not a abstract path." % path)
+        return os.path.relpath(path, self._db_dir)
+
+    # Return path joined with db dir
+    def abspath(self, path):
+        # NOTE: Make sure the path & self._db_dir are all encoded or all decoded, or
+        # the os.path.join will raise UnicodeDecodeError.
+        if os.path.isabs(path):
+            return path
+        return os.path.abspath(os.path.join(self._db_dir, path))
 
     @staticmethod
     def is_valid_media_file(path):
@@ -135,7 +173,7 @@ class MediaDatabase(object):
 
         size = os.path.getsize(file_path)
         
-        if not MediaFile.is_media_file(file_path):
+        if not is_media_file(file_path):
             return False
             
         if size < MIN_FILE_SIZE:
@@ -145,6 +183,9 @@ class MediaDatabase(object):
         return True
 
     def add_file(self, path):
+        if not os.path.isabs(path):
+            path = os.path.abspath(path)
+            
         if not MediaDatabase.is_valid_media_file(path):
             return False
 
@@ -186,8 +227,8 @@ class MediaDatabase(object):
             sql = 'select count(*) from medias where relative_path=?'
             values = (relative_path,)
             
-        self._cursor.execute(sql, values)
-        row = self._cursor.fetchone()
+        cursor = self._query(self._cursor(), sql, values)
+        row = cursor.fetchone()
         return row and row[0] > 0
 
     def _save(self, mf):
@@ -212,12 +253,13 @@ class MediaDatabase(object):
         focal_length_in_35mm,
         middle_md5          ,
         tags                ,
-        description
+        description         ,
+        duration
         )
-        values (%s)''' % (','.join('?'*21),)
+        values (%s)''' % (','.join('?'*22),)
 
         try:
-            self._cursor.execute(sql, (
+            self._execute(self._cursor(), sql, (
                 mf.filename            ,
                 mf.path                ,
                 mf.relative_path       ,
@@ -239,6 +281,7 @@ class MediaDatabase(object):
                 mf.middle_md5          ,
                 mf.tags                ,
                 mf.description         ,
+                mf.duration            ,
             ))
             return True
         except sqlite3.IntegrityError:
@@ -252,15 +295,14 @@ class MediaDatabase(object):
     def commit(self):
         self._db.commit()
 
-    @property
     def _cursor(self):
-        if getattr(self, "_db_cursor", None) is None:
-            self._db_cursor = self._db.cursor()
-        return self._db_cursor
+        return self._db.cursor()
 
     def _create_table(self):
+        cursor = self._cursor()
         # Create table medias
-        self._cursor.execute('''CREATE TABLE IF NOT EXISTS medias 
+        self._execute(cursor,
+                '''CREATE TABLE IF NOT EXISTS medias 
                   (id integer primary key,
                   filename text,
                   path text unique,
@@ -282,212 +324,20 @@ class MediaDatabase(object):
                   focal_length_in_35mm integer,
                   middle_md5 text unique,
                   tags text,
-                  description text)''')
+                  description text,
+                  duration integer)''')
         
-        # c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS _idx_medias_middle_md5 ON medias (middle_md5)''')
         self.commit()
+
+        # Alter db to add duration fild if user_version == 0
+        self._db_version = self._execute(cursor,
+                'pragma user_version').fetchone()[0]
+        if self._db_version == 0:
+            self._execute(cursor,
+                    'ALTER TABLE medias ADD COLUMN duration integer')
+            self._execute(cursor, 'pragma user_version=1')
+            self.commit()
+        
             
     def close(self):
         self._db.close()
-
-_COMMANDS = [
-    'build',
-    'add',
-    'update',
-    'query',
-    'diff',
-]
-
-_DB_FILE = 'media.sqlite3'
-
-def parse_cmd_args():
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description='Media file database manager')
-
-    # command: build, update, query
-    parser.add_argument(
-        'command',
-        help='Media manager command.'
-    )
-    parser.add_argument(
-        '--media-dir',
-        default='.',
-        help='Specify medias directory.'
-    )
-    parser.add_argument(
-        '--db',
-        dest='db_path',
-        help='Database file path',
-        default=None
-    )
-
-    # args for query
-    parser.add_argument('--filename',
-                        help='Query by filename')
-    parser.add_argument('--md5',
-                        help='Query by md5')
-    parser.add_argument('--relpath',
-                        help='Query or delete by relative path')
-    parser.add_argument('--exif-make',
-                        help='Query by exif make info'
-    )
-
-    # args for add, update
-    parser.add_argument(
-        '--path',
-        help='File path to add or update.'
-    )
-    parser.add_argument(
-        '--update-exif',
-        action='store_true',
-        help='Update exif info for all media items in database.'
-    )
-
-    # args for diff
-    parser.add_argument(
-        '--left',
-        help='Left media directory in diff mode'
-    )
-    parser.add_argument(
-        '--right',
-        help='Right media directory in diff mode'
-    )
-
-    args = parser.parse_args()
-
-    if args.command not in _COMMANDS:
-        log("Invalid command: %s" % args.command)
-        exit(0)
-
-    return args
-
-def update_exif_info(mdb, media_dir):
-    count = 0
-    for root, dirs, files in os.walk(media_dir, topdown=True):
-        for name in files:
-            file_path = os.path.join(root, name)
-            if not MediaDatabase.is_valid_media_file(file_path):
-                continue
-                
-            exif_info = ExifInfo(file_path)
-            
-            relative_path = mdb.relpath(file_path)
-            mf = mdb.get(relative_path=relative_path)
-            
-            if mf and \
-               (mf.create_time != exif_info.create_time or \
-                mf.make != exif_info.make):
-                # update exif info
-                rowid = mdb.update(
-                    mf.id,
-                    create_time=exif_info.create_time,
-                    exif_make=exif_info.make,
-                    exif_model=exif_info.model,
-                    gps_latitude=exif_info.gps_latitude,
-                    gps_longitude=exif_info.gps_longitude,
-                    gps_altitude=exif_info.gps_altitude,
-                    image_width=exif_info.image_width,
-                    image_height=exif_info.image_height,
-                    f_number=exif_info.f_number,
-                    exposure_time=exif_info.exposure_time,
-                    iso=exif_info.iso,
-                    focal_length_in_35mm=exif_info.focal_length_in_35mm
-                )
-                if rowid > 0:
-                    count += 1
-                else:
-                    logging.error("Update failed: %s" % mf.relative_path)
-            else:
-                continue
-            
-    mdb.commit()
-
-    log("Updated %d files." % count)
-
-
-def do_single_dir(args):
-    db_path = args.db_path
-    if db_path is None:
-        db_path = os.path.join(args.media_dir, "media.sqlite3")
-
-    if args.command != 'build' and not os.path.isfile(db_path):
-        print "Error: please build media database first."
-        exit(1)
-
-    mdb = MediaDatabase(db_path)
-
-    if args.command == 'build':
-        mdb.build(args.media_dir)
-
-    if args.command == 'add':
-        if args.path:
-            mdb.add_file(args.path)
-
-    if args.command == 'update':
-        if args.path:
-            mdb.del_file(path=args.path)
-            mdb.add_file(args.path)
-        elif args.relpath:
-            mdb.del_file(relpath=args.relpath)
-            mdb.add_file(args.relpath)
-        elif args.update_exif:
-            update_exif_info(mdb, args.media_dir)
-            
-    if args.command == 'query':
-        values = [args.filename, args.md5, args.relpath, args.exif_make]
-        keys = ["filename", "middle_md5", "relative_path", "exif_make"]
-        for i in xrange(len(values)):
-            if not values[i]:
-                keys[i] = None
-        values = filter(None, values)
-        keys = filter(None, keys)
-
-        kwparameters = dict(zip(keys, values))
-        it = mdb.iter(**kwparameters)
-        count = 0
-        for item in it:
-            print item
-            count += 1
-        print 'Found %d files.' % count
-
-def do_multi_dirs(args):
-    left_db = os.path.join(args.left, _DB_FILE)
-    right_db = os.path.join(args.right, _DB_FILE)
-
-    if not os.path.isfile(left_db) or \
-       not os.path.isfile(right_db):
-        exit(2)
-    
-    left_mdb = MediaDatabase(left_db)
-    right_mdb = MediaDatabase(right_db)
-
-    if args.command == 'diff':
-        left_items = left_mdb.iter()
-        for item in left_items:
-            if not right_mdb.get(
-                    middle_md5=item.middle_md5,
-                    file_size=item.file_size,
-                    create_time=item.create_time
-            ):
-                log('- %s %s' % (item.path, item.middle_md5))
-
-        right_items = right_mdb.iter()
-        for item in right_items:
-            if not left_mdb.get(
-                    middle_md5=item.middle_md5,
-                    file_size=item.file_size,
-                    create_time=item.create_time
-            ):
-                log('+ %s %s' % (item.path, item.middle_md5))
-        
-
-if __name__ == '__main__':
-    args = parse_cmd_args()
-
-    if args.command in ['build', 'update', 'query']:
-        do_single_dir(args)
-
-    if args.command == 'diff':
-        do_multi_dirs(args)

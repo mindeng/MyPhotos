@@ -6,11 +6,20 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+// For md5
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#if defined(__APPLE__)
+#  define COMMON_DIGEST_FOR_OPENSSL
+#  include <CommonCrypto/CommonDigest.h>
+#  define SHA1 CC_SHA1
+#else
+#  include <openssl/md5.h>
+#endif
 
 const static int EXIF_BUF_LEN = 1024;
-const static int READ_BUF_LEN = 10 * 1024;
 static char exif_info[EXIF_BUF_LEN];
-static char read_buf[READ_BUF_LEN];
 
 static int format_json(char** buf, const char* k, const char* v, int* capacity, bool is_last = false)
 {
@@ -108,8 +117,8 @@ const char* get_exif_info(const char* content, unsigned int size)
 			result.DateTimeDigitized.c_str(), &capacity);
     format_json(&buf, "ExposureTime", result.ExposureTime, &capacity);
     format_json(&buf, "FNumber", result.FNumber, &capacity);
-    format_json(&buf, "ISO", result.ISOSpeedRatings, &capacity);
-    format_json(&buf, "FocalLengthIn35mmFormat",
+    format_json(&buf, "ISOSpeedRatings", result.ISOSpeedRatings, &capacity);
+    format_json(&buf, "FocalLengthIn35mmFilm",
 		result.FocalLengthIn35mm, &capacity);
 
     format_json(&buf, "GPSLatitude", result.GeoLocation.Latitude,
@@ -168,6 +177,26 @@ static void unmap_file(char *mapped, unsigned int size)
     }  
 }
 
+void md5(const char* data, int length, unsigned char out[16])
+{
+    MD5_CTX c;
+
+    MD5_Init(&c);
+
+    while (length > 0) {
+        if (length > 512) {
+            MD5_Update(&c, data, 512);
+        } else {
+            MD5_Update(&c, data, length);
+        }
+        length -= 512;
+        data += 512;
+    }
+
+    MD5_Final(out, &c);
+}
+
+
 const char* get_exif_info(const char* path)
 {
     const char* exif_info = NULL;
@@ -182,22 +211,16 @@ const char* get_exif_info(const char* path)
     return exif_info;
 }
 
-const char* quick_read(const char* path, unsigned int offset,
-		       unsigned int size)
+void quick_read(const char* path, unsigned int offset,
+		unsigned int size, char* out)
 {
     unsigned int total_size = 0;
     char *buf = map_file(path, &total_size);
     
     if (buf != NULL) {
-	size = size <= READ_BUF_LEN ? size : READ_BUF_LEN;
-	if (size < READ_BUF_LEN) {
-	    memset(read_buf, 0, READ_BUF_LEN);
-	}
-	memcpy(read_buf, buf + offset, size);
+	memcpy(out, buf + offset, size);
 	unmap_file(buf, total_size);
     }
-
-    return read_buf;
 }
 
 int main(int argc, char *argv[]) {
