@@ -53,7 +53,25 @@ def parse_cmd_args():
         '--has-gps',
         dest='has_gps',
         action='store_true',
-        help='Query media files which gps info is not empty".'
+        help='Query media files which gps info is not empty.'
+    )
+    parser.add_argument(
+        '--non-gps',
+        dest='non_gps',
+        action='store_true',
+        help='Query media files which gps info is empty.'
+    )
+    parser.add_argument(
+        '--has-time',
+        dest='has_time',
+        action='store_true',
+        help='Query media files which create time is not empty.'
+    )
+    parser.add_argument(
+        '--non-time',
+        dest='non_time',
+        action='store_true',
+        help='Query media files which create time is empty.'
     )
 
     # args for specified operation file
@@ -301,10 +319,21 @@ def do_query(mdb, args):
     if args.has_gps:
         keys += ['gps_latitude']
         values += [MediaDatabase.IS_NOT_NULL]
+    elif args.non_gps:
+        keys += ['gps_latitude']
+        values += [None]
 
-    if values == []:
-        log("Please specify a query condition.")
-        exit(1)
+    if args.has_time:
+        keys += ['create_time']
+        values += [MediaDatabase.IS_NOT_NULL]
+    elif args.non_time:
+        keys += ['create_time']
+        values += [None]
+
+    # Query all media files if no query condition
+    #if values == []:
+    #    log("Please specify a query condition.")
+    #    exit(1)
 
     kwparameters = dict(zip(keys, values))
     it = mdb.iter(**kwparameters)
