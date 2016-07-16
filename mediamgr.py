@@ -132,6 +132,18 @@ def parse_cmd_args():
         '--right',
         help='Right media directory in diff mode'
     )
+    parser.add_argument(
+        '--only-inleft',
+        dest='only_inleft',
+        action='store_true',
+        help='Print files only in left in diff mode'
+    )
+    parser.add_argument(
+        '--only-inright',
+        dest='only_inright',
+        action='store_true',
+        help='Print files only in right in diff mode'
+    )
 
     args = parser.parse_args()
 
@@ -396,35 +408,34 @@ def do_multi_dirs(args):
     left_mdb = MediaDatabase(left_db)
     right_mdb = MediaDatabase(right_db)
 
-    if args.command == 'diff':
-        count_only_in_left = 0
+    def log_files_only_db1(db1, db2):
+        count_only_in_db1 = 0
         count_same = 0
-        left_items = left_mdb.iter()
-        for item in left_items:
-            if not right_mdb.get(
+        items = db1.iter()
+        for item in items:
+            if not db2.get(
                     middle_md5=item.middle_md5,
                     file_size=item.file_size,
                     create_time=item.create_time
             ):
                 log('- %s %s' % (item.path, item.middle_md5))
-                count_only_in_left += 1
+                count_only_in_db1 += 1
             else:
                 count_same += 1
+        return count_only_in_db1, count_same
 
-        count_only_in_right = 0
-        right_items = right_mdb.iter()
-        for item in right_items:
-            if not left_mdb.get(
-                    middle_md5=item.middle_md5,
-                    file_size=item.file_size,
-                    create_time=item.create_time
-            ):
-                log('+ %s %s' % (item.path, item.middle_md5))
-                count_only_in_right += 1
+    count_only_in_left, count_only_in_right = None, None
+    if args.command == 'diff':
+        if not args.only_inright:
+            count_only_in_left, count_same = log_files_only_db1(left_mdb, right_mdb)
+        if not args.only_inleft:
+            count_only_in_right, count_same = log_files_only_db1(right_mdb, left_mdb)
         
         log('Same files: %d' % count_same)
-        log('Only in %s: %d' % (args.left, count_only_in_left))
-        log('Only in %s: %d' % (args.right, count_only_in_right))
+        if count_only_in_left:
+            log('Only in %s: %d' % (args.left, count_only_in_left))
+        if count_only_in_right:
+            log('Only in %s: %d' % (args.right, count_only_in_right))
 
 def parse_gps_values(text):
     gps_values = re.split(r'[, ]', text)
