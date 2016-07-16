@@ -108,8 +108,8 @@ def parse_cmd_args():
         help='Reload md5 info (including md5, path, file_size) for the specified media file.'
     )
     parser.add_argument(
-        '--update-gps',
-        dest='update_gps',
+        '--set-gps',
+        dest='set_gps',
         help='Set gps for the specified media file. gps info is specified in format "latitude,longtitude,altitude".'
     )
     parser.add_argument(
@@ -247,8 +247,8 @@ def op_reload(mdb, args, mf, dry_run):
     mdb.update_mf(mf.id, new_mf)
     return True
 
-def op_update_gps(mdb, args, mf, dry_run):
-    gps_values = parse_gps_values(args.update_gps)
+def op_set_gps(mdb, args, mf, dry_run):
+    gps_values = parse_gps_values(args.set_gps)
 
     if \
             mf.gps_latitude     == gps_values[0] and \
@@ -281,7 +281,7 @@ def do_update(mdb, args):
             "reload": op_reload,
             "reload_exif": op_reload_exif,
             "reload_md5": op_reload_md5,
-            "update_gps": op_update_gps,
+            "set_gps": op_set_gps,
             }
 
     update_op = None

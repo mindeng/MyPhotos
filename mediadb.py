@@ -63,7 +63,7 @@ class MediaDatabase(object):
             return None, dict((k, decode_text(v)) for k, v in
                     kwparameters.iteritems())
         elif parameters:
-            return (decode_text(v) for v in parameters), None
+            return [decode_text(v) for v in parameters], None
         else:
             return None, None
 
@@ -75,7 +75,7 @@ class MediaDatabase(object):
             kwparameters = dict(( (k,v) for k,v in kwparameters.items() if type(v) != type([]) ))
         elif parameters:
             try:
-                parameters.remove(MediaDatabase.IS_NOT_NULL)
+                parameters = filter(lambda v: v != MediaDatabase.IS_NOT_NULL, parameters)
             except ValueError:
                 pass
 
@@ -144,7 +144,7 @@ class MediaDatabase(object):
         if not rows:
             return None
         elif len(rows) > 1:
-            print rows
+            logging.error( 'rows: %s' % (rows,))
             raise Exception(
                 "Multiple rows returned for Database.get() query")
         else:
@@ -201,9 +201,9 @@ class MediaDatabase(object):
         if not is_media_file(file_path):
             return False
             
-        if size < MIN_FILE_SIZE:
-            log('Ignore small file: %s' % path)
-            return False
+        #if size < MIN_FILE_SIZE:
+        #    log('Ignore small file: %s' % path)
+        #    return False
 
         return True
 
@@ -255,8 +255,7 @@ class MediaDatabase(object):
             sql = 'select count(*) from medias where relative_path=?'
             values = (relative_path,)
             
-        cursor = self._query(self._cursor(), sql, values)
-        row = cursor.fetchone()
+        row = self._execute(self._cursor(), sql, values).fetchone()
         return row and row[0] > 0
 
     def _save(self, mf):
