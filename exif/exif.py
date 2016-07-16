@@ -192,7 +192,7 @@ class ExifInfo(PropertyDict):
         return False
 
     def __eq__(self, o):
-        return \
+        return o and \
                 ( self.exif_make             == o.exif_make            or self._p("exif_make           ") ) and \
                 ( self.exif_model            == o.exif_model           or self._p("exif_model          ") ) and \
                 ( self.image_width           == o.image_width          or self._p("image_width         ") ) and \

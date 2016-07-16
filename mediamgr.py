@@ -5,6 +5,7 @@ from mediadb import MediaDatabase
 from exif import ExifInfo
 from mediafile import MediaFile
 import re
+import sqlite3
 
 _COMMANDS = [
     'build',
@@ -170,7 +171,7 @@ def op_reload_md5(mdb, args, mf, dry_run):
         return False
 
     path = mdb.abspath(mf.relative_path)
-    new_mf = MediaFile()
+    new_mf = MediaFile(mf)
     new_mf.load_file_info(path)
 
     if \
@@ -188,12 +189,18 @@ def op_reload_md5(mdb, args, mf, dry_run):
     if dry_run:
         return True
 
-    mdb.update(
-            mf.id,
-            path=new_mf.path,
-            file_size=new_mf.file_size,
-            middle_md5=new_mf.middle_md5
-            )
+    try:
+        mdb.update(
+                mf.id,
+                path=new_mf.path,
+                file_size=new_mf.file_size,
+                middle_md5=new_mf.middle_md5
+                )
+    except sqlite3.IntegrityError:
+        conflict_mf = mdb.get(middle_md5=new_mf.middle_md5)
+        logging.warn('IntegrityError: middle_md5 conflict with: %s' % conflict_mf)
+        return False
+
     return True
 
 def op_reload_exif(mdb, args, mf, dry_run):
@@ -386,6 +393,8 @@ def do_multi_dirs(args):
     right_mdb = MediaDatabase(right_db)
 
     if args.command == 'diff':
+        count_only_in_left = 0
+        count_same = 0
         left_items = left_mdb.iter()
         for item in left_items:
             if not right_mdb.get(
@@ -394,7 +403,11 @@ def do_multi_dirs(args):
                     create_time=item.create_time
             ):
                 log('- %s %s' % (item.path, item.middle_md5))
+                count_only_in_left += 1
+            else:
+                count_same += 1
 
+        count_only_in_right = 0
         right_items = right_mdb.iter()
         for item in right_items:
             if not left_mdb.get(
@@ -403,7 +416,11 @@ def do_multi_dirs(args):
                     create_time=item.create_time
             ):
                 log('+ %s %s' % (item.path, item.middle_md5))
+                count_only_in_right += 1
         
+        log('Same files: %d' % count_same)
+        log('Only in %s: %d' % (args.left, count_only_in_left))
+        log('Only in %s: %d' % (args.right, count_only_in_right))
 
 def parse_gps_values(text):
     gps_values = re.split(r'[, ]', text)

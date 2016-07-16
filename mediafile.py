@@ -72,8 +72,11 @@ class MediaFile(PropertyDict):
             # Copy all exif info to self._exif_info, and delete all exif info
             # fields from self, so we can make sure all exif info is
             # getted/setted from self._exif_info
-            self._exif_info = ExifInfo.from_dict(self)
-            [self.pop(k) for k in self.keys() if k in self._exif_info]
+            if len(parameters) > 0 and getattr(parameters[0], '_exif_info', None) != None:
+                self._exif_info = ExifInfo.from_dict(parameters[0]._exif_info)
+            else:
+                self._exif_info = ExifInfo.from_dict(self)
+                [self.pop(k) for k in self.keys() if k in self._exif_info]
 
     # Load exif info, base file info & md5
     def load_from_path(self, path):
@@ -137,7 +140,7 @@ class MediaFile(PropertyDict):
         #     mm.close()
 
     def __eq__(self, o):
-        return \
+        return o and \
                 self.path           == o.path           and \
                 self.filename       == o.filename       and \
                 self.file_size      == o.file_size      and \
