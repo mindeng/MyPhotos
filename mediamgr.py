@@ -426,7 +426,7 @@ def parse_gps_values(text):
     gps_values = re.split(r'[, ]', text)
     return [float(v) if v else None for v in gps_values]
 
-if __name__ == '__main__':
+def main():
     args = parse_cmd_args()
 
     if args.command in ['build', 'update', 'query']:
@@ -434,3 +434,15 @@ if __name__ == '__main__':
 
     if args.command == 'diff':
         do_multi_dirs(args)
+
+if __name__ == '__main__':
+    import timeit
+
+    start = timeit.default_timer()
+
+    main()
+
+    elapsed = timeit.default_timer() - start
+    log( 'Elapsed time: %s %s' % (
+        elapsed / 60.0 if elapsed >= 60.0 else elapsed,
+        'minutes' if elapsed >= 60.0 else 'seconds' ) )
