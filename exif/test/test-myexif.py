@@ -11,14 +11,15 @@ import myexif
 import timeit
 import mmap
 
-path = "/Users/min/Pictures/DSC_0001.JPG"
+#path = "/Users/min/Pictures/DSC_0001.JPG"
 #path = "/Users/min/Downloads/203518Spc.jpg"
+path = sys.argv[1]
 def testit():
     return myexif.get_exif_info(path)
 
 print testit()
 
-#print timeit.timeit('testit()', 'from __main__ import testit', number=10000)
+print timeit.timeit('testit()', 'from __main__ import testit', number=1000)
 # 100 0.96 seconds
 # 100 0.46 seconds
 # 10000 0.36 seconds
@@ -31,5 +32,5 @@ def read_file(path, offset, length):
         content = mm.read(length)
         return content
 
-path = "test-myexif.py"
-print myexif.quick_read(path, 20, 100) == read_file(path, 20, 100)
+#path = "test-myexif.py"
+#print myexif.quick_read(path, 20, 100) == read_file(path, 20, 100)

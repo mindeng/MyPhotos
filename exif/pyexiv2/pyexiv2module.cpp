@@ -80,38 +80,36 @@ static void md5_update(MD5_CTX& c, const char* data, int length)
     }
 }
 
+// If file size is equal or samller than 3 * 32KB, than calculate md5 for the whole file
+// Otherwise calculate md5 for the first, middle and last 32KB bytes.
 static void calc_middle_md5(const char* path, unsigned char* out)
 {
-    const int MD5_HEAD_SIZE = 24 * 1024;
-    const int MD5_MIDDLE_SIZE = 8 * 1024;
-    const int MD5_TAIL_SIZE = 8 * 1024;
+    const int CHUNK_SIZE = 32 * 1024;
+    const int CHUNK_NUM = 3;
 
     unsigned int total_size = 0;
     char *buf = map_file(path, &total_size);
     
     if (buf != NULL) {
         MD5_CTX c;
-        int size = 0;
+        const int size = CHUNK_SIZE;
         const char* data = buf;
 
         MD5_Init(&c);
 
-        if (total_size <= 48 * 1024) {
-            // calc all
+        if (total_size <= CHUNK_NUM * CHUNK_SIZE) {
+            // calc for the whole file
             md5_update(c, data, total_size);
         }
         else {
-            // calc for head
-            size = MD5_HEAD_SIZE;
+            // chunk 1
             md5_update(c, data, size);
 
-            // calc for middle
-            size = MD5_MIDDLE_SIZE;
-            data = buf + (size - MD5_MIDDLE_SIZE) / 2;
+            // chunk 2
+            data = buf + (total_size - size) / 2;
             md5_update(c, data, size);
 
-            // calc for tail
-            size = MD5_TAIL_SIZE;
+            // chunk 3
             data = buf + total_size - size;
             md5_update(c, data, size);
         }

@@ -4,6 +4,19 @@ import timeit
 from hashlib import md5
 
 import sys
+import os
+sys.path.append(
+    os.path.abspath(
+        os.path.join(os.path.dirname(
+            os.path.realpath(__file__) ), '..') ))
+import exif
+from exif.myexif import calc_middle_md5
+
+
+def test_calc_middle_md5():
+    #calc_middle_md5('/Volumes/sg2/01Photos/2016/201604/Raw/DSC_0161.NEF')
+    calc_middle_md5(sys.argv[1])
+print 'test_calc_middle_md5', timeit.timeit('test_calc_middle_md5()', 'from __main__ import test_calc_middle_md5', number=1000)
 
 default_recursion_limit = sys.getrecursionlimit()
 sys.setrecursionlimit(10001)
@@ -17,7 +30,7 @@ def recursive_md5(s, count, n):
     else:
         return recursive_md5(ret, count, n)
 
-
+exit(0)
 
 import binascii
 import uuid
