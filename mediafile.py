@@ -64,6 +64,7 @@ class MediaFile(PropertyDict):
             super(MediaFile, self).__init__()
             self._exif_info = ExifInfo()
             self.relative_path = relative_path
+            self.id = None
             self.load_from_path(path)
         else:
             # init from db row or empty dict

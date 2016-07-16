@@ -91,6 +91,10 @@ def parse_cmd_args():
         '--path',
         help='Specified operation file by path.'
     )
+    parser.add_argument(
+        '--id',
+        help='Specified operation file by id.'
+    )
 
     # args for update
     parser.add_argument(
@@ -320,8 +324,8 @@ def do_query(mdb, args):
     log('Found %d file%s.' % (count, 's' if count>1 else ''))
 
 def query_by_args(mdb, args):
-    values = [args.filename, args.md5, args.relpath, args.exif_make, args.path]
-    keys = ["filename", "middle_md5", "relative_path", "exif_make", "path"]
+    values = [args.filename, args.md5, args.relpath, args.exif_make, args.path, args.id]
+    keys = ["filename", "middle_md5", "relative_path", "exif_make", "path", "id"]
 
     if args.gps:
         gps_values = parse_gps_values(args.gps)
