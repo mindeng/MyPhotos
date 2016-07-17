@@ -8,6 +8,7 @@ import re
 import sqlite3
 from exif import copy_file
 import logging
+import datetime
 
 _COMMANDS = [
     'build',
@@ -45,15 +46,21 @@ def parse_cmd_args():
     )
 
     # args for query
-    parser.add_argument('--filename',
-                        help='Query by filename')
-    parser.add_argument('--exif-make',
-                        help='Query by exif make info'
-    )
     parser.add_argument(
-        '--gps',
-        help='Query by gps info. gps info is specified in format "latitude,longtitude,altitude".'
-    )
+            '--filename',
+            help='Query by filename')
+    parser.add_argument(
+            '--exif-make',
+            dest='exif_make',
+            help='Query by exif make info')
+    parser.add_argument(
+            '--exif-model',
+            dest='exif_model',
+            help='Query by exif model info')
+    parser.add_argument(
+            '--gps',
+            help='Query by gps info. gps info is specified in format "latitude,longtitude,altitude".'
+            )
     parser.add_argument(
         '--has-gps',
         dest='has_gps',
@@ -92,12 +99,12 @@ def parse_cmd_args():
         )
     parser.add_argument(
         '--after-date',
-        dest='start_date',
+        dest='after_date',
         help='Query media files which are created at or after the specified START_DATE.'
         )
     parser.add_argument(
         '--before-date',
-        dest='end_date',
+        dest='before_date',
         help='Query media files which are created at or before the specified BEFORE_DATE.'
         )
     parser.add_argument(
@@ -105,6 +112,12 @@ def parse_cmd_args():
         action='store_true',
         help='Query all media files.'
         )
+    parser.add_argument(
+        '--only-count',
+        dest='only_count',
+        action='store_true',
+        help='Only print the number of matched media files.'
+            )
 
     # args for get
     parser.add_argument(
@@ -202,9 +215,17 @@ def parse_cmd_args():
     # * Comparation between encoded text and decoded text may failed.
     # * Some system call related with path (e.g.: os.path.join,
     #   os.path.relpath) may raise exception UnicodeDecodeError.
-    for key,value in vars(args).iteritems():
+    for key, value in vars(args).iteritems():
         if value:
-            setattr(args, key, decode_text(value))
+            if type(value) == type(True) and key.startswith('non_'):
+                # translate non_* values to IS_NULL
+                setattr(args, key, MediaDatabase.IS_NULL)
+            elif type(value) == type(True) and key.startswith('has_'):
+                # translate has_* values to IS_NOT_NULL
+                setattr(args, key, MediaDatabase.IS_NOT_NULL)
+            else:
+                # try to decode all user input values
+                setattr(args, key, decode_text(value))
 
 
     # NOTE: Make sure all path (except relpath) is abstract path.
@@ -373,11 +394,14 @@ def do_update(mdb, args):
 
 def do_query(mdb, args):
     it = query_by_args(mdb, args)
-
     count = 0
-    for item in it:
-        print item
-        count += 1
+
+    if args.only_count:
+        count = it
+    else:
+        for item in it:
+            log(item)
+            count += 1
     log('Found %d file%s.' % (count, 's' if count>1 else ''))
 
 def do_get(args):
@@ -388,46 +412,73 @@ def do_get(args):
         log(hex_middle_md5(path))
 
 def query_by_args(mdb, args):
-    values = [args.filename, args.md5, args.relpath, args.exif_make, args.path, args.id]
-    keys = ["filename", "middle_md5", "relative_path", "exif_make", "path", "id"]
 
-    if args.gps:
-        gps_values = parse_gps_values(args.gps)
-        values += gps_values
-        keys += ['gps_latitude', 'gps_longitude', 'gps_altitude']
+    def handle_arg_date(v):
+        try:
+            t1 = datetime.datetime.strptime(v, '%Y%m%d')
+            d = datetime.timedelta(days=1)
+            t2 = t1 + d
+            return (MediaDatabase.CMP_GTE, t1, MediaDatabase.CMP_LT, t2)
+        except ValueError:
+            log("Invalid date format: %s. Please input date like '20160716'.")
+            exit(3)
 
-    for i in xrange(len(values)):
-        if not values[i]:
-            keys[i] = None
-        elif keys[i] == 'path':
-            # Convert abstract path to relative path, so that the file
-            # can be found even if the root directory changed
-            keys[i] = "relative_path"
-            values[i] = mdb.relpath(args.path)
+    # normalize arg file extension
+    # TODO: query by multiple extensions
+    def handle_arg_ext(v):
+        v = v.lower()
+        if not v.startswith('.'):
+            v = '.%s' % v
+        return v
 
-    keys = filter(None, keys)
-    values = filter(None, values)
+    if args.date or args.after_date or args.before_date:
+        pass
+
     
-    if args.has_gps:
-        keys += ['gps_latitude']
-        values += [MediaDatabase.IS_NOT_NULL]
-    elif args.non_gps:
-        keys += ['gps_latitude']
-        values += [None]
+    query_args = [
+            ( "filename"                                 ,    (args.filename,     None),                       ),  
+            ( "relative_path"                            ,    (args.path,         lambda v: mdb.relpath(v)),   ),  # Only using relative_path to query, because the root directory may has been moved.
+            ( "relative_path"                            ,    (args.relpath,      None),                       ),
+            ( "create_time"                              ,    (args.date,         handle_arg_date),            ),
+            ( "create_time"                              ,    (args.has_time,     None),                       ),
+            ( "create_time"                              ,    (args.non_time,     None),                       ),
+            # TODO: ("file_size":                        ,    (args.date,         handle_arg_date),            ),
+            ( "media_type"                               ,    (args.type,         lambda v: v.lower()),        ),
+            ( "file_extension"                           ,    (args.ext,          handle_arg_ext),             ),
+            ( "exif_make"                                ,    (args.exif_make,    None),                       ),
+            ( "exif_model"                               ,    (args.exif_model,   None),                       ),
+            ( "gps_latitude"                             ,    (args.has_gps,      None),                       ),
+            ( "gps_latitude"                             ,    (args.non_gps,      None),                       ),
+            ( "gps_latitude,gps_longitude,gps_altitude"  ,    (args.gps,          parse_gps_values),           ),
+            ( "middle_md5"                               ,    (args.md5,          None),                       ),
+            ( "id"                                       ,    (args.id,           None),                       ),  
+            ]
 
-    if args.has_time:
-        keys += ['create_time']
-        values += [MediaDatabase.IS_NOT_NULL]
-    elif args.non_time:
-        keys += ['create_time']
-        values += [None]
+    kwparameters = dict()
+    for k, v in query_args:
+        keys = k.split(',')
+
+        if not v[0]: continue
+
+        if v[1]:
+            values = v[1](v[0])
+        else:
+            values = v[0]
+
+        if values:
+            if len(keys) > 1:
+                kwparameters.update(zip(keys, values))
+            else:
+                kwparameters[keys[0]] = values
 
     # If no query is specified, return empty result
     if not args.all and not keys:
         return []
 
-    kwparameters = dict(zip(keys, values))
-    return mdb.iter(**kwparameters)
+    if args.only_count:
+        return mdb.count(**kwparameters)
+    else:
+        return mdb.iter(**kwparameters)
 
 def do_single_dir(args):
     if args.command != 'build' and not os.path.isfile(args.db_path):

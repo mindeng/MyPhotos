@@ -120,7 +120,7 @@ class ExifInfo(PropertyDict):
     TIME_FORMAT = '%Y %m %d %H %M %S'
 
     def _stringtify(self, copy):
-        copy['create_time'] = str(self.create_time)
+        copy['create_time'] = str(self.create_time) if self.create_time else None
 
     @staticmethod
     def from_path(path):

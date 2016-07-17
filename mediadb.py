@@ -67,15 +67,26 @@ class MediaDatabase(object):
         else:
             return None, None
 
-    IS_NOT_NULL = (True,)
+    IS_NOT_NULL = ('is not null',)
+    IS_NULL     = ('is null',)
+    CMP_GTE     = ('>=',)
+    CMP_LTE     = ('<=',)
+    CMP_GT      = ('>',)
+    CMP_LT      = ('<',)
+
+    # check if v is a placeholder value
+    def _is_placeholder(self, v):
+        return type(v) == type(MediaDatabase.IS_NOT_NULL)
 
     def _execute(self, cursor, sql, parameters=None, kwparameters=None):
         # Remove placeholder values, e.g.: IS_NOT_NULL
         if kwparameters:
-            kwparameters = dict(( (k,v) for k,v in kwparameters.items() if type(v) != type([]) ))
+            # leave placeholder values in kwparameters is OK
+            # kwparameters = dict(( (k,v) for k,v in kwparameters.items() if not self._is_placeholder(v) ))
+            pass
         elif parameters:
             try:
-                parameters = filter(lambda v: v != MediaDatabase.IS_NOT_NULL, parameters)
+                parameters = filter(lambda v: not self._is_placeholder(v), parameters)
             except ValueError:
                 pass
 
@@ -97,11 +108,29 @@ class MediaDatabase(object):
         return [MediaFile(zip(column_names, row)) for row in cursor]
 
     def _make_where_clause(self, kv):
-        return ' and '.join(('%s=:%s'%(k,k) 
-            if (v is not None and v != MediaDatabase.IS_NOT_NULL) 
-            else '%s is %s' % (k, 
-                'not null' if v == MediaDatabase.IS_NOT_NULL else 'null')
-                             for k, v in kv.items()))
+        express_list = []
+        for k, v in kv.items():
+            express = None
+            if v in (MediaDatabase.IS_NOT_NULL, MediaDatabase.IS_NULL):
+                express = '%s %s' % (k, v[0])
+            elif self._is_placeholder(v):
+                for i in xrange(0, len(v), 2):
+                    e = '%s%s:%s%d' % (k, v[i+0][0], k, i)
+                    kv['%s%d'%(k,i)] = v[i+1]
+                    express_list.append(e)
+            elif v:
+                express = '%s=:%s' % (k, k)
+
+            if express:
+                express_list.append(express)
+
+        return ' and '.join(express_list)
+
+        #return ' and '.join(('%s=:%s'%(k,k) 
+        #    if (v is not None and v != MediaDatabase.IS_NOT_NULL) 
+        #    else '%s is %s' % (k, 
+        #        'not null' if v == MediaDatabase.IS_NOT_NULL else 'null')
+        #                     for k, v in kv.items()))
 
     def _make_set_clause(self, kv):
         return ','.join(('%s=:%s'%(k,k) for k in kv))
@@ -123,11 +152,24 @@ class MediaDatabase(object):
                     self._make_where_clause(kwparameters)
         else:
             sql = "select * from medias"
+
+        print sql, kwparameters
         cursor = self._cursor()
         self._execute(cursor, sql, parameters, kwparameters)
         column_names = [d[0] for d in cursor.description]
         for row in cursor:
             yield MediaFile(zip(column_names, row))
+
+    def count(self, *parameters, **kwparameters):
+        if kwparameters:
+            sql = "select count(*) from medias where %s" % \
+                    self._make_where_clause(kwparameters)
+        else:
+            sql = "select count(*) from medias"
+        print sql, kwparameters
+        cursor = self._cursor()
+        row = self._execute(cursor, sql, parameters, kwparameters).fetchone()
+        return row and row[0] or 0
 
     def query(self, *parameters, **kwparameters):
         sql = "select * from medias where %s" % \

@@ -54,7 +54,7 @@ class MediaFile(PropertyDict):
 
     def _stringtify(self, copy):
         copy['exif'] = self._exif_info
-        copy['exif'].create_time = str(copy['exif'].create_time)
+        copy['exif'].create_time = str(copy['exif'].create_time) if copy['exif'].create_time else None
 
     def __init__(self, *parameters, **kwparameters):
         path = kwparameters.get("path")
