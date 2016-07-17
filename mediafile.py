@@ -2,7 +2,7 @@
 
 import os
 from exif import ExifInfo, PropertyDict
-from exif import calc_middle_md5
+from exif import hex_middle_md5
 from hashlib import md5
 import json
 #import mmap
@@ -120,14 +120,10 @@ class MediaFile(PropertyDict):
 
     # Only load md5
     def load_md5(self, path):
-        # NOTE: c extension module can only handle encoded path
-        path = encode_text(path)
-
         #offset = (self.file_size - MediaFile.MD5_CONTENT_LEN) / 2
         #length = MediaFile.MD5_CONTENT_LEN
 
-        digest = calc_middle_md5(path)
-        self.middle_md5 = ''.join('{:02x}'.format(ord(x)) for x in digest)
+        self.middle_md5 = hex_middle_md5(path)
 
         #content = quick_read(self.path.encode('utf-8'), offset, length)
         #self.middle_md5 = md5(content).hexdigest()

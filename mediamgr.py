@@ -2,10 +2,12 @@
 
 from utils import *
 from mediadb import MediaDatabase
-from exif import ExifInfo
+from exif import ExifInfo, get_file_time, hex_middle_md5
 from mediafile import MediaFile
 import re
 import sqlite3
+from exif import copy_file
+import logging
 
 _COMMANDS = [
     'build',
@@ -13,6 +15,8 @@ _COMMANDS = [
     'update',
     'query',
     'diff',
+    'merge',
+    'get',  # get information from file
 ]
 
 _DB_FILE = 'media.sqlite3'
@@ -75,10 +79,40 @@ def parse_cmd_args():
         help='Query media files which create time is empty.'
     )
     parser.add_argument(
+        '--type',
+        help='Query media files by type, valid types are: image, video.'
+        )
+    parser.add_argument(
+        '--ext',
+        help='Query media files by file extension.'
+        )
+    parser.add_argument(
+        '--date',
+        help='Query media files which are created at the specified DATE.'
+        )
+    parser.add_argument(
+        '--after-date',
+        dest='start_date',
+        help='Query media files which are created at or after the specified START_DATE.'
+        )
+    parser.add_argument(
+        '--before-date',
+        dest='end_date',
+        help='Query media files which are created at or before the specified BEFORE_DATE.'
+        )
+    parser.add_argument(
         '--all',
         action='store_true',
         help='Query all media files.'
         )
+
+    # args for get
+    parser.add_argument(
+            '--get-md5',
+            dest='get_md5',
+            action='store_true',
+            help='Calculate a partial md5 for file, using a specific algorithm.'
+            )
 
     # args for specified operation file
     parser.add_argument(
@@ -118,7 +152,8 @@ def parse_cmd_args():
         help='Set gps for the specified media file. gps info is specified in format "latitude,longtitude,altitude".'
     )
     parser.add_argument(
-            '--dry',
+            '--dry-run',
+            dest='dry_run',
             action='store_true',
             help='Dry run the update command.'
             )
@@ -145,6 +180,14 @@ def parse_cmd_args():
         help='Print files only in right in diff mode'
     )
 
+    # Don't display elapsed time
+    parser.add_argument(
+            '--no-timeit',
+            dest='no_timeit',
+            action='store_true',
+            help='Donnot display elapsed time.'
+            )
+
     args = parser.parse_args()
 
     if args.command not in _COMMANDS:
@@ -169,6 +212,8 @@ def parse_cmd_args():
     args.path = fix_path(args.path)
     args.media_dir = fix_path(args.media_dir)
     args.db_path = fix_path(args.db_path)
+    args.left = fix_path(args.left)
+    args.right = fix_path(args.right)
 
     if args.db_path is None:
         args.db_path = os.path.join(args.media_dir, _DB_FILE)
@@ -203,7 +248,7 @@ def op_reload_md5(mdb, args, mf, dry_run):
     log("new: %s" % new_mf)
 
     if dry_run:
-        return True
+        return False
 
     try:
         mdb.update(
@@ -234,7 +279,7 @@ def op_reload_exif(mdb, args, mf, dry_run):
     log("new: %s" % exif_info)
 
     if dry_run:
-        return True
+        return False
 
     mdb.update(
             mf.id,
@@ -264,7 +309,7 @@ def op_reload(mdb, args, mf, dry_run):
     log("new: %s" % new_mf)
 
     if dry_run:
-        return True
+        return False
 
     # udpate all info for the specified item
     mdb.update_mf(mf.id, new_mf)
@@ -289,7 +334,7 @@ def op_set_gps(mdb, args, mf, dry_run):
     log("new: %s" % mf._exif_info)
 
     if dry_run:
-        return True
+        return False
 
     mdb.update_mf(mf.id, mf)
     return True
@@ -298,7 +343,7 @@ def op_set_gps(mdb, args, mf, dry_run):
 
 def do_update(mdb, args):
     mf = None
-    dry_run = args.dry
+    dry_run = args.dry_run
 
     action_ops = {
             "reload": op_reload,
@@ -334,6 +379,13 @@ def do_query(mdb, args):
         print item
         count += 1
     log('Found %d file%s.' % (count, 's' if count>1 else ''))
+
+def do_get(args):
+
+    path = args.path
+
+    if args.get_md5:
+        log(hex_middle_md5(path))
 
 def query_by_args(mdb, args):
     values = [args.filename, args.md5, args.relpath, args.exif_make, args.path, args.id]
@@ -389,7 +441,8 @@ def do_single_dir(args):
 
     if args.command == 'add':
         if args.path:
-            mdb.add_file(args.path)
+            if mdb.add_file(args.path):
+                log("+ %s" % args.path)
 
     if args.command == 'update':
         do_update(mdb, args)
@@ -397,67 +450,136 @@ def do_single_dir(args):
     if args.command == 'query':
         do_query(mdb, args)
 
-def do_multi_dirs(args):
-    left_db = os.path.join(args.left, _DB_FILE)
-    right_db = os.path.join(args.right, _DB_FILE)
-
-    if not os.path.isfile(left_db) or \
-       not os.path.isfile(right_db):
-        exit(2)
-    
-    left_mdb = MediaDatabase(left_db)
-    right_mdb = MediaDatabase(right_db)
-
-    def log_files_only_db1(db1, db2):
+def do_diff(left_mdb, right_mdb, args):
+    def log_files_only_db1(db1, db2, prefix):
         count_only_in_db1 = 0
         count_same = 0
-        items = db1.iter()
-        for item in items:
+        it = db1.iter()
+        for item in it:
             if not db2.get(
                     middle_md5=item.middle_md5,
                     file_size=item.file_size,
                     create_time=item.create_time
             ):
-                log('- %s %s' % (item.path, item.middle_md5))
+                log('%s %s %s' % (prefix, item.path, item.middle_md5))
                 count_only_in_db1 += 1
             else:
                 count_same += 1
         return count_only_in_db1, count_same
 
     count_only_in_left, count_only_in_right = None, None
+    if not args.only_inright:
+        count_only_in_left, count_same = log_files_only_db1(left_mdb, right_mdb, '-')
+    if not args.only_inleft:
+        count_only_in_right, count_same = log_files_only_db1(right_mdb, left_mdb, '+')
+    
+    log('Same files: %d' % count_same)
+    if count_only_in_left:
+        log('Only in left: %d' % (args.left, count_only_in_left))
+    if count_only_in_right:
+        log('Only in right: %d' % (args.right, count_only_in_right))
+
+def do_merge(left_mdb, right_mdb, args):
+    dst_root = args.right
+    it = left_mdb.iter()
+    count_only_in_left = 0
+    count_same = 0
+    copied = 0
+
+    for src_mf in it:
+        if not right_mdb.get(
+                middle_md5  = src_mf.middle_md5,
+                file_size   = src_mf.file_size,
+                create_time = src_mf.create_time
+                ):
+
+            src = left_mdb.abspath(src_mf.relative_path)
+            file_time = src_mf.create_time or get_file_time(src)
+            dst_dir = os.path.join(dst_root, 
+                    file_time.strftime('%Y'), 
+                    file_time.strftime('%Y%m'),
+                    file_time.strftime('%Y%m%d'),
+                    src_mf.file_extension[1:])
+            dst = os.path.join(dst_dir, src_mf.filename)
+
+            log('%s -> %s' % (src, dst))
+            count_only_in_left += 1
+
+            if not os.path.isdir(dst_dir):
+                os.makedirs(dst_dir)
+
+            dst_mf = None
+            if os.path.isfile(dst):
+                dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
+                if dst_mf.middle_md5 == src_mf.middle_md5:
+                    logging.warn('File %s exists, database will be updated.' % dst)
+                else:
+                    logging.warn('File %s exists, copy aborted.' % dst)
+                    dst_mf = None
+            elif not args.dry_run:
+                if copy_file(src, dst) and right_mdb.add_file(dst):
+                    copied += 1
+
+            if dst_mf:
+                right_mdb.add_mf(dst_mf)
+
+        else:
+            count_same += 1
+
+    right_mdb.commit()
+
+    log('Same files: %d' % count_same)
+    log('Only in left: %d' % count_only_in_left)
+    log('Copied files: %d' % copied)
+
+def do_multi_dirs(args):
+
+    def get_db_file(media_dir):
+        if not os.path.isdir(media_dir):
+            log('%s is not a directory.' % media_dir)
+            exit(2)
+
+        db_path = os.path.join(media_dir, _DB_FILE)
+        if not os.path.isfile(db_path):
+            log('Please run command "mediamgr.py build %s" to build media ' \
+                    'database first.' % db_path)
+            exit(2)
+        return db_path
+
+    left_db_file = get_db_file(args.left)
+    right_db_file = get_db_file(args.right)
+    
+    left_mdb = MediaDatabase(left_db_file)
+    right_mdb = MediaDatabase(right_db_file)
+
     if args.command == 'diff':
-        if not args.only_inright:
-            count_only_in_left, count_same = log_files_only_db1(left_mdb, right_mdb)
-        if not args.only_inleft:
-            count_only_in_right, count_same = log_files_only_db1(right_mdb, left_mdb)
-        
-        log('Same files: %d' % count_same)
-        if count_only_in_left:
-            log('Only in %s: %d' % (args.left, count_only_in_left))
-        if count_only_in_right:
-            log('Only in %s: %d' % (args.right, count_only_in_right))
+        do_diff(left_mdb, right_mdb, args)
+    elif args.command == 'merge':
+        do_merge(left_mdb, right_mdb, args)
 
 def parse_gps_values(text):
     gps_values = re.split(r'[, ]', text)
     return [float(v) if v else None for v in gps_values]
 
-def main():
-    args = parse_cmd_args()
-
+def main(args):
     if args.command in ['build', 'update', 'query']:
         do_single_dir(args)
 
-    if args.command == 'diff':
+    if args.command in ['diff', 'merge']:
         do_multi_dirs(args)
+
+    if args.command in ['get']:
+        do_get(args)
 
 if __name__ == '__main__':
     import timeit
-
     start = timeit.default_timer()
 
-    main()
+    args = parse_cmd_args()
+    main(args)
 
-    elapsed = timeit.default_timer() - start
-    log( 'Elapsed time: %s %s' % (
-        elapsed / 60.0 if elapsed >= 60.0 else elapsed,
-        'minutes' if elapsed >= 60.0 else 'seconds' ) )
+    if not args.no_timeit:
+        elapsed = timeit.default_timer() - start
+        log( 'Elapsed time: %s %s' % (
+            elapsed / 60.0 if elapsed >= 60.0 else elapsed,
+            'minutes' if elapsed >= 60.0 else 'seconds' ) )

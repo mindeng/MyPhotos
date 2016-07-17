@@ -20,7 +20,72 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+   //define something for Windows (32-bit and 64-bit, this part is common)
+   #ifdef _WIN64
+      //define something for Windows (64-bit only)
+   #endif
+#elif __APPLE__
+#include <copyfile.h>
+#elif __linux__
+    // linux
+
+// For sendfile
+#include <iostream>
+#include <sys/sendfile.h>  // sendfile
+#include <fcntl.h>         // open
+#include <unistd.h>        // close
+#include <sys/stat.h>      // fstat
+#include <sys/types.h>     // fstat
+#include <ctime>
+
+#elif __unix__ // all unices not caught above
+    // Unix
+#elif defined(_POSIX_VERSION)
+    // POSIX
+#else
+#   error "Unknown compiler"
+#endif
+
+
 extern const std::string get_exif_info(const char* path);
+
+#if defined(__APPLE__)
+int cp_file(const char *src, const char *dst)
+{
+    /* Initialize a state variable */
+    copyfile_state_t s;
+    int ret = 0;
+
+    s = copyfile_state_alloc();
+    /* Copy the data and extended attributes of one file to another */
+    ret = copyfile(src, dst, s, COPYFILE_DATA | COPYFILE_STAT | COPYFILE_EXCL);
+    /* Release the state variable */
+    copyfile_state_free(s);
+
+    if (ret != 0) {
+        perror("cp_file");
+    }
+
+    return ret;
+}
+#elif __linux__
+int cp_file(const char *src, const char *dst)
+{
+    struct stat stat_source;
+    int source = open(src, O_RDONLY, 0);
+    int dest = open(dst, O_WRONLY | O_CREAT | O_EXCL, 0644);
+
+    // struct required, rationale: function stat() exists also
+    fstat(source, &stat_source);
+    sendfile(dest, source, 0, stat_source.st_size);
+
+    close(source);
+    close(dest);
+
+    return 0;
+}
+#endif
 
 static char* map_file(const char* path, unsigned int* size)
 {
@@ -120,6 +185,20 @@ static void calc_middle_md5(const char* path, unsigned char* out)
 }
 
 static PyObject *
+myexif_cp_file(PyObject *self, PyObject *args)
+{
+    const char *src;
+    const char *dst;
+
+    if (!PyArg_ParseTuple(args, "ss", &src, &dst))
+        return NULL;
+
+    int ret = cp_file(src, dst);
+    
+    return Py_BuildValue("i", ret);
+}
+
+static PyObject *
 myexif_calc_middle_md5(PyObject *self, PyObject *args)
 {
     const char *path;
@@ -164,6 +243,13 @@ static PyMethodDef myexif_methods[] = {
       (PyCFunction)myexif_calc_middle_md5,
       METH_VARARGS | METH_KEYWORDS,
       "Calculate md5 for file."
+  },
+
+  {
+    "cp_file",
+    (PyCFunction)myexif_cp_file,
+    METH_VARARGS | METH_KEYWORDS,
+    "Copy file."
   },
 
   

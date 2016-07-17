@@ -222,7 +222,7 @@ class MediaDatabase(object):
         if self.has(relative_path=relative_path):
             return False
             
-        log("+ %s" % relative_path)
+        #log("+ %s" % relative_path)
         
         mf = MediaFile(path=path, relative_path=relative_path)
         return self._save(mf)
@@ -235,6 +235,7 @@ class MediaDatabase(object):
             for name in files:
                 file_path = os.path.join(root, name)
                 if self.add_file(file_path):
+                    log("+ %s" % file_path)
                     total_count += 1
                     count += 1
                     
