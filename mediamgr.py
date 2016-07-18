@@ -32,18 +32,18 @@ def parse_cmd_args():
     # command: build, update, query
     parser.add_argument(
         'command',
+        nargs='?', default='query',
         help='Media manager command. Valid commands: %s' % ', '.join(_COMMANDS)
     )
     parser.add_argument(
-        '--media-dir',
-        default='.',
-        help='Specify medias directory.'
+        'media_dir',
+        nargs='?', default=os.getcwd(),
+        help='Media root directory.'
     )
     parser.add_argument(
-        '--db',
-        dest='db_path',
-        help='Database file path',
-        default=None
+        'dst_dir',
+        nargs='?', default=None,
+        help='Destination media root directory in diff/merge mode'
     )
 
     # args for query
@@ -144,7 +144,7 @@ def parse_cmd_args():
         help='Specified operation file by md5')
     parser.add_argument(
         '--relpath',
-        help='Specified operation file by relative path')
+        help='Specified operation file by path relatived to the media root directory.')
     parser.add_argument(
         '--path',
         help='Specified operation file by path.'
@@ -184,18 +184,10 @@ def parse_cmd_args():
 
     # args for diff
     parser.add_argument(
-        '--left',
-        help='Left media directory in diff mode'
-    )
-    parser.add_argument(
-        '--right',
-        help='Right media directory in diff mode'
-    )
-    parser.add_argument(
-        '--only-inleft',
+        '--only-insrc',
         dest='only_inleft',
         action='store_true',
-        help='Print files only in left in diff mode'
+        help='Print files only in source directory in diff/merge mode'
     )
     parser.add_argument(
         '--only-inright',
@@ -241,14 +233,17 @@ def parse_cmd_args():
 
     # NOTE: Make sure all path (except relpath) is abstract path.
     fix_path = lambda path: os.path.abspath(path) if path else None
-    args.path = fix_path(args.path)
     args.media_dir = fix_path(args.media_dir)
-    args.db_path = fix_path(args.db_path)
-    args.left = fix_path(args.left)
-    args.right = fix_path(args.right)
+    args.dst_dir = fix_path(args.dst_dir)
+    args.path = fix_path(args.path)
 
-    if args.db_path is None:
+    if os.path.isdir(args.media_dir):
         args.db_path = os.path.join(args.media_dir, _DB_FILE)
+    else:
+        log("No such file or directory: %s" % args.path)
+        exit(1)
+    args.left = args.media_dir
+    args.right = args.dst_dir
 
     return args
 
@@ -523,8 +518,9 @@ def query_by_args(mdb, args):
                 kwparameters[keys[0]] = values
 
     # If no query is specified, return empty result
-    if not args.all and not keys:
-        return []
+    if not args.all and not kwparameters:
+        log("Needs at least one query option.")
+        exit(1)
 
     if args.only_count:
         return mdb.count(**kwparameters)
@@ -577,9 +573,9 @@ def do_diff(left_mdb, right_mdb, args):
     
     log('Same files: %d' % count_same)
     if count_only_in_left:
-        log('Only in left: %d' % (args.left, count_only_in_left))
+        log('Only in src: %d' % (args.left, count_only_in_left))
     if count_only_in_right:
-        log('Only in right: %d' % (args.right, count_only_in_right))
+        log('Only in dst: %d' % (args.right, count_only_in_right))
 
 def do_merge(left_mdb, right_mdb, args):
     dst_root = args.right
@@ -589,12 +585,14 @@ def do_merge(left_mdb, right_mdb, args):
     copied = 0
 
     for src_mf in it:
-        if not right_mdb.get(
+        if right_mdb.get(
                 middle_md5  = src_mf.middle_md5,
                 file_size   = src_mf.file_size,
                 create_time = src_mf.create_time
                 ):
-
+            count_same += 1
+        else:
+            count_only_in_left += 1
             src = left_mdb.abspath(src_mf.relative_path)
             file_time = src_mf.create_time or get_file_time(src)
             dst_dir = os.path.join(dst_root, 
@@ -605,7 +603,6 @@ def do_merge(left_mdb, right_mdb, args):
             dst = os.path.join(dst_dir, src_mf.filename)
 
             log('%s -> %s' % (src, dst))
-            count_only_in_left += 1
 
             if not os.path.isdir(dst_dir):
                 os.makedirs(dst_dir)
@@ -615,23 +612,25 @@ def do_merge(left_mdb, right_mdb, args):
                 dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
                 if dst_mf.middle_md5 == src_mf.middle_md5:
                     logging.warn('File %s exists, database will be updated.' % dst)
+                    right_mdb.add_mf(dst_mf)
                 else:
                     logging.warn('File %s exists, copy aborted.' % dst)
                     dst_mf = None
             elif not args.dry_run:
-                if copy_file(src, dst) and right_mdb.add_file(dst):
-                    copied += 1
-
-            if dst_mf:
-                right_mdb.add_mf(dst_mf)
-
-        else:
-            count_same += 1
+                if copy_file(src, dst):
+                    dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
+                    # copied file's middle_md5 should be same as the src_mf's middle_md5
+                    if dst_mf.middle_md5 == src_mf.middle_md5:
+                        right_mdb.add_mf(dst_mf)
+                        copied += 1
+                    else:
+                        logging.error("Copied file's middle_md5 dose not match, copy failed: %s." % src)
+                        os.unlink(dst)
 
     right_mdb.commit()
 
     log('Same files: %d' % count_same)
-    log('Only in left: %d' % count_only_in_left)
+    log('Only in src: %d' % count_only_in_left)
     log('Copied files: %d' % copied)
 
 def do_multi_dirs(args):
