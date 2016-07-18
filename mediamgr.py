@@ -176,6 +176,11 @@ def parse_cmd_args():
         help='Set gps for the specified media file. gps info is specified in format "latitude,longtitude,altitude".'
     )
     parser.add_argument(
+        '--cleanup',
+        action='store_true',
+        help='Cleanup database items whose related file is not existing in filesystem.'
+    )
+    parser.add_argument(
             '--dry-run',
             dest='dry_run',
             action='store_true',
@@ -373,6 +378,19 @@ def op_set_gps(mdb, args, mf, dry_run):
     mdb.update_mf(mf.id, mf)
     return True
 
+def op_cleanup(mdb, args, mf, dry_run):
+    if os.path.isfile(mdb.abspath(mf.relative_path)):
+        return False
+
+    log("File %s does not exist, the related item will be cleaned up." % mdb.abspath(mf.relative_path))
+
+    if dry_run:
+        return False
+
+    # Cleanup the related item
+    mdb.del_mf(mf)
+    return True
+
 ### do command functions ###
 
 def do_update(mdb, args):
@@ -384,6 +402,7 @@ def do_update(mdb, args):
             "reload_exif": op_reload_exif,
             "reload_md5": op_reload_md5,
             "set_gps": op_set_gps,
+            "cleanup": op_cleanup,
             }
 
     update_op = None
@@ -579,9 +598,9 @@ def do_diff(left_mdb, right_mdb, args):
         count_only_in_right, count_same = log_files_only_db1(right_mdb, left_mdb, '+')
     
     log('Same files: %d' % count_same)
-    if count_only_in_left:
+    if count_only_in_left is not None:
         log('Only in src: %d' % count_only_in_left)
-    if count_only_in_right:
+    if count_only_in_right is not None:
         log('Only in dst: %d' % count_only_in_right)
 
 def do_merge(left_mdb, right_mdb, args):
@@ -615,7 +634,8 @@ def do_merge(left_mdb, right_mdb, args):
                 os.makedirs(dst_dir)
 
             def _copy():
-                if dry_run or not copy_file(src, dst):
+                global copied
+                if args.dry_run or not copy_file(src, dst):
                     return False
 
                 dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
@@ -639,6 +659,8 @@ def do_merge(left_mdb, right_mdb, args):
                 else:
                     if args.overwrite:
                         # overwirte the destination file
+                        # Remove db item from right_mdb first
+                        dst_mf.del_file(relative_path=right_mdb.relpath(dst))
                         _copy()
                     else:
                         logging.warn('File %s exists, copy aborted.' % dst)
