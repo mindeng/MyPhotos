@@ -115,8 +115,16 @@ class MediaDatabase(object):
         for k, v in kv.items():
             express = None
 
-            # get correct column name from key word
-            col = k[:k.rindex('_')]
+            col = k
+            try:
+                # get correct column name from key word
+                col = k[:k.rindex('-')]
+                # get crorrect key name from key word 
+                # by replacing '-' to '_', because '-' will cause sql error
+                k = k.replace('-', '_')
+                kv[k] = v
+            except ValueError:
+                pass
 
             if v in (MediaDatabase.IS_NOT_NULL, MediaDatabase.IS_NULL):
                 express = '%s %s' % (col, v[0])
@@ -159,7 +167,7 @@ class MediaDatabase(object):
         else:
             sql = "select * from medias"
 
-        print sql, kwparameters
+        #print sql, kwparameters
         cursor = self._cursor()
         self._execute(cursor, sql, parameters, kwparameters)
         column_names = [d[0] for d in cursor.description]
@@ -172,7 +180,7 @@ class MediaDatabase(object):
                     self._make_where_clause(kwparameters)
         else:
             sql = "select count(*) from medias"
-        print sql, kwparameters
+        #print sql, kwparameters
         cursor = self._cursor()
         row = self._execute(cursor, sql, parameters, kwparameters).fetchone()
         return row and row[0] or 0

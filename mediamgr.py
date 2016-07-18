@@ -9,6 +9,7 @@ import sqlite3
 from exif import copy_file
 import logging
 import datetime
+import string
 
 _COMMANDS = [
     'build',
@@ -98,14 +99,24 @@ def parse_cmd_args():
         help='Query media files which are created at the specified DATE.'
         )
     parser.add_argument(
-        '--after-date',
-        dest='after_date',
-        help='Query media files which are created at or after the specified START_DATE.'
+        '--min-size',
+        dest='min_size',
+        help='Query media files which size are equal or greater than MIN_SIZE.'
         )
     parser.add_argument(
-        '--before-date',
-        dest='before_date',
-        help='Query media files which are created at or before the specified BEFORE_DATE.'
+        '--max-size',
+        dest='max_size',
+        help='Query media files which size are equal or less than MAX_SIZE.'
+        )
+    parser.add_argument(
+        '--min-date',
+        dest='min_date',
+        help='Query media files which are created at or after the specified MIN_DATE.'
+        )
+    parser.add_argument(
+        '--max-date',
+        dest='max_date',
+        help='Query media files which are created at or before the specified MAX_DATE.'
         )
     parser.add_argument(
         '--all',
@@ -426,6 +437,26 @@ def query_by_args(mdb, args):
             log("Invalid date format: %s. Please input date like '2016', '201607', '2010716', or '2016-07-16'." % v)
             exit(3)
 
+    def parse_user_input_size(v):
+        multiplier = 1
+        size = v
+        unit = None
+        if v[-1] not in string.digits:
+            unit = v[-1].lower()
+            size = v[:-1]
+
+        if unit == 'k':
+            multiplier = 1024
+        elif unit == 'm':
+            multiplier = 1024 * 1024
+
+        try:
+            return float(size) * multiplier
+        except ValueError:
+            log("Invalid size: %s. Please input size like 1m, 500k, 88888." % v)
+
+        return 0
+
     def handle_arg_date(v):
         t1 = parse_user_input_date(v)
         d = datetime.timedelta(days=1)
@@ -439,7 +470,7 @@ def query_by_args(mdb, args):
                 t2 = datetime.datetime(year=t1.year+1, month=t1.moth, day=1)
         return (MediaDatabase.CMP_GTE, t1), (MediaDatabase.CMP_LT, t2)
 
-    def handle_arg_before_date(v):
+    def handle_arg_max_date(v):
         t = parse_user_input_date(v)
         t += datetime.timedelta(days=1)
         return (MediaDatabase.CMP_LT, t)
@@ -453,24 +484,25 @@ def query_by_args(mdb, args):
         return v
 
     query_args = [
-            ( "filename"                                 ,    (args.filename,     None),                       ),  
-            ( "relative_path"                            ,    (args.path,         lambda v: mdb.relpath(v)),   ),  # Only using relative_path to query, because the root directory may has been moved.
-            ( "relative_path"                            ,    (args.relpath,      None),                       ),
-            ( "create_time_0,create_time_1"              ,    (args.date,         handle_arg_date),            ),
-            ( "create_time_2"                            ,    (args.after_date,   lambda v: (MediaDatabase.CMP_GTE, parse_user_input_date(v))),  ),
-            ( "create_time_3"                            ,    (args.before_date,  handle_arg_before_date),     ),
-            ( "create_time"                              ,    (args.has_time,     None),                       ),
-            ( "create_time"                              ,    (args.non_time,     None),                       ),
-            # TODO: ("file_size":                        ,    (args.date,         handle_arg_date),            ),
-            ( "media_type"                               ,    (args.type,         lambda v: v.lower()),        ),
-            ( "file_extension"                           ,    (args.ext,          handle_arg_ext),             ),
-            ( "exif_make"                                ,    (args.exif_make,    None),                       ),
-            ( "exif_model"                               ,    (args.exif_model,   None),                       ),
-            ( "gps_latitude"                             ,    (args.has_gps,      None),                       ),
-            ( "gps_latitude"                             ,    (args.non_gps,      None),                       ),
-            ( "gps_latitude,gps_longitude,gps_altitude"  ,    (args.gps,          parse_gps_values),           ),
-            ( "middle_md5"                               ,    (args.md5,          None),                       ),
-            ( "id"                                       ,    (args.id,           None),                       ),  
+            ( "filename"                                 ,    ( args.filename,     None),                       ),  
+            ( "relative_path"                            ,    ( args.path,         lambda v: mdb.relpath(v)),   ),  # Only using relative_path to query, because the root directory may has been moved.
+            ( "relative_path"                            ,    ( args.relpath,      None),                       ),
+            ( "create_time-0,create_time-1"              ,    ( args.date,         handle_arg_date),            ),
+            ( "create_time-2"                            ,    ( args.min_date,     lambda v: ( MediaDatabase.CMP_GTE, parse_user_input_date(v) ) ),  ),
+            ( "create_time-3"                            ,    ( args.max_date,     handle_arg_max_date),        ),
+            ( "create_time"                              ,    ( args.has_time,     None),                       ),
+            ( "create_time"                              ,    ( args.non_time,     None),                       ),
+            ( "file_size"                                ,    ( args.min_size,     lambda v: ( MediaDatabase.CMP_GTE, parse_user_input_size(v) ) ),  ),
+            ( "file_size"                                ,    ( args.max_size,     lambda v: ( MediaDatabase.CMP_LTE, parse_user_input_size(v) ) ),  ),
+            ( "media_type"                               ,    ( args.type,         lambda v: v.lower()),        ),
+            ( "file_extension"                           ,    ( args.ext,          handle_arg_ext),             ),
+            ( "exif_make"                                ,    ( args.exif_make,    None),                       ),
+            ( "exif_model"                               ,    ( args.exif_model,   None),                       ),
+            ( "gps_latitude"                             ,    ( args.has_gps,      None),                       ),
+            ( "gps_latitude"                             ,    ( args.non_gps,      None),                       ),
+            ( "gps_latitude,gps_longitude,gps_altitude"  ,    ( args.gps,          parse_gps_values),           ),
+            ( "middle_md5"                               ,    ( args.md5,          None),                       ),
+            ( "id"                                       ,    ( args.id,           None),                       ),  
             ]
 
     kwparameters = dict()
