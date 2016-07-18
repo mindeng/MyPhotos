@@ -187,13 +187,20 @@ def parse_cmd_args():
         '--only-insrc',
         dest='only_inleft',
         action='store_true',
-        help='Print files only in source directory in diff/merge mode'
+        help='Print files only in source directory in diff mode'
     )
     parser.add_argument(
-        '--only-inright',
+        '--only-indst',
         dest='only_inright',
         action='store_true',
         help='Print files only in right in diff mode'
+    )
+
+    # args for merge
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='Copy file any way and overwrite any existed files in merge mode.'
     )
 
     # Don't display elapsed time
@@ -573,9 +580,9 @@ def do_diff(left_mdb, right_mdb, args):
     
     log('Same files: %d' % count_same)
     if count_only_in_left:
-        log('Only in src: %d' % (args.left, count_only_in_left))
+        log('Only in src: %d' % count_only_in_left)
     if count_only_in_right:
-        log('Only in dst: %d' % (args.right, count_only_in_right))
+        log('Only in dst: %d' % count_only_in_right)
 
 def do_merge(left_mdb, right_mdb, args):
     dst_root = args.right
@@ -607,25 +614,36 @@ def do_merge(left_mdb, right_mdb, args):
             if not os.path.isdir(dst_dir):
                 os.makedirs(dst_dir)
 
-            dst_mf = None
+            def _copy():
+                if dry_run or not copy_file(src, dst):
+                    return False
+
+                dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
+                # copied file's middle_md5 should be same as the src_mf's middle_md5
+                if dst_mf.middle_md5 == src_mf.middle_md5:
+                    # copy success
+                    right_mdb.add_mf(dst_mf)
+                    copied += 1
+                    return True
+                else:
+                    # copy failed
+                    logging.error("Copied file's middle_md5 dose not match, copy failed: %s." % src)
+                    os.unlink(dst)
+                    return False
+
             if os.path.isfile(dst):
                 dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
                 if dst_mf.middle_md5 == src_mf.middle_md5:
                     logging.warn('File %s exists, database will be updated.' % dst)
                     right_mdb.add_mf(dst_mf)
                 else:
-                    logging.warn('File %s exists, copy aborted.' % dst)
-                    dst_mf = None
-            elif not args.dry_run:
-                if copy_file(src, dst):
-                    dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
-                    # copied file's middle_md5 should be same as the src_mf's middle_md5
-                    if dst_mf.middle_md5 == src_mf.middle_md5:
-                        right_mdb.add_mf(dst_mf)
-                        copied += 1
+                    if args.overwrite:
+                        # overwirte the destination file
+                        _copy()
                     else:
-                        logging.error("Copied file's middle_md5 dose not match, copy failed: %s." % src)
-                        os.unlink(dst)
+                        logging.warn('File %s exists, copy aborted.' % dst)
+            else:
+                _copy()
 
     right_mdb.commit()
 
