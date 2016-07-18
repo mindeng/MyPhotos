@@ -634,7 +634,6 @@ def do_merge(left_mdb, right_mdb, args):
                 os.makedirs(dst_dir)
 
             def _copy():
-                global copied
                 if args.dry_run or not copy_file(src, dst):
                     return False
 
@@ -643,7 +642,6 @@ def do_merge(left_mdb, right_mdb, args):
                 if dst_mf.middle_md5 == src_mf.middle_md5:
                     # copy success
                     right_mdb.add_mf(dst_mf)
-                    copied += 1
                     return True
                 else:
                     # copy failed
@@ -659,13 +657,21 @@ def do_merge(left_mdb, right_mdb, args):
                 else:
                     if args.overwrite:
                         # overwirte the destination file
-                        # Remove db item from right_mdb first
-                        dst_mf.del_file(relative_path=right_mdb.relpath(dst))
-                        _copy()
+                        logging.warn('File %s exists, will be overwritten.' % dst)
+
+                        if not args.dry_run:
+                            # Remove db item from right_mdb first
+                            right_mdb.del_file(middle_md5=dst_mf.middle_md5)
+                            # Delete file in filesystem
+                            os.unlink(dst)
+                            # Copy from src
+                            if _copy():
+                                copied += 1
                     else:
                         logging.warn('File %s exists, copy aborted.' % dst)
             else:
-                _copy()
+                if _copy():
+                    copied += 1
 
     right_mdb.commit()
 
