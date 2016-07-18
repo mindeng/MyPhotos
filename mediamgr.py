@@ -413,15 +413,36 @@ def do_get(args):
 
 def query_by_args(mdb, args):
 
-    def handle_arg_date(v):
+    def parse_user_input_date(v):
+        v = v.replace('-', '')
         try:
-            t1 = datetime.datetime.strptime(v, '%Y%m%d')
-            d = datetime.timedelta(days=1)
-            t2 = t1 + d
-            return (MediaDatabase.CMP_GTE, t1, MediaDatabase.CMP_LT, t2)
+            if len(v) == len('2016'):
+                return datetime.datetime.strptime(v, '%Y')
+            elif len(v) == len('201601'):
+                return datetime.datetime.strptime(v, '%Y%m')
+            else:
+                return datetime.datetime.strptime(v, '%Y%m%d')
         except ValueError:
-            log("Invalid date format: %s. Please input date like '20160716'.")
+            log("Invalid date format: %s. Please input date like '2016', '201607', '2010716', or '2016-07-16'." % v)
             exit(3)
+
+    def handle_arg_date(v):
+        t1 = parse_user_input_date(v)
+        d = datetime.timedelta(days=1)
+        v = v.replace('-', '')
+        if len(v) == len('2016'):
+            t2 = datetime.datetime(year=t1.year+1, month=1, day=1)
+        elif len(v) == len('201601'):
+            if t1.month < 12:
+                t2 = datetime.datetime(year=t1.year, month=t1.moth+1, day=1)
+            else:
+                t2 = datetime.datetime(year=t1.year+1, month=t1.moth, day=1)
+        return (MediaDatabase.CMP_GTE, t1), (MediaDatabase.CMP_LT, t2)
+
+    def handle_arg_before_date(v):
+        t = parse_user_input_date(v)
+        t += datetime.timedelta(days=1)
+        return (MediaDatabase.CMP_LT, t)
 
     # normalize arg file extension
     # TODO: query by multiple extensions
@@ -431,15 +452,13 @@ def query_by_args(mdb, args):
             v = '.%s' % v
         return v
 
-    if args.date or args.after_date or args.before_date:
-        pass
-
-    
     query_args = [
             ( "filename"                                 ,    (args.filename,     None),                       ),  
             ( "relative_path"                            ,    (args.path,         lambda v: mdb.relpath(v)),   ),  # Only using relative_path to query, because the root directory may has been moved.
             ( "relative_path"                            ,    (args.relpath,      None),                       ),
-            ( "create_time"                              ,    (args.date,         handle_arg_date),            ),
+            ( "create_time_0,create_time_1"              ,    (args.date,         handle_arg_date),            ),
+            ( "create_time_2"                            ,    (args.after_date,   lambda v: (MediaDatabase.CMP_GTE, parse_user_input_date(v))),  ),
+            ( "create_time_3"                            ,    (args.before_date,  handle_arg_before_date),     ),
             ( "create_time"                              ,    (args.has_time,     None),                       ),
             ( "create_time"                              ,    (args.non_time,     None),                       ),
             # TODO: ("file_size":                        ,    (args.date,         handle_arg_date),            ),

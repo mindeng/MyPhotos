@@ -7,6 +7,7 @@ import os
 import logging
 import re
 import json
+import string
 
 MIN_FILE_SIZE = 10 * 1024
 TYPE_IMAGE, TYPE_VIDEO = 'image', 'video'
@@ -77,6 +78,8 @@ class MediaDatabase(object):
     # check if v is a placeholder value
     def _is_placeholder(self, v):
         return type(v) == type(MediaDatabase.IS_NOT_NULL)
+    def _is_placeholder_cmp(self, v):
+        return type(v) == type(MediaDatabase.IS_NOT_NULL) and v[0][0][0] in '><'
 
     def _execute(self, cursor, sql, parameters=None, kwparameters=None):
         # Remove placeholder values, e.g.: IS_NOT_NULL
@@ -111,15 +114,18 @@ class MediaDatabase(object):
         express_list = []
         for k, v in kv.items():
             express = None
+
+            # get correct column name from key word
+            col = k[:k.rindex('_')]
+
             if v in (MediaDatabase.IS_NOT_NULL, MediaDatabase.IS_NULL):
-                express = '%s %s' % (k, v[0])
-            elif self._is_placeholder(v):
-                for i in xrange(0, len(v), 2):
-                    e = '%s%s:%s%d' % (k, v[i+0][0], k, i)
-                    kv['%s%d'%(k,i)] = v[i+1]
-                    express_list.append(e)
+                express = '%s %s' % (col, v[0])
+            elif self._is_placeholder_cmp(v):
+                express = '%s%s:%s' % (col, v[0][0], k)
+                # set the actual value for the key
+                kv[k] = v[1]
             elif v:
-                express = '%s=:%s' % (k, k)
+                express = '%s=:%s' % (col, k)
 
             if express:
                 express_list.append(express)
