@@ -343,12 +343,17 @@ static void parse_xmp_data(Exiv2::XmpData::const_iterator& i,
            ) {
             // time zero is Jan 1, 1904, not Jan 1, 1970
             const int offset = (66 * 365 + 17) * 24 * 3600;
-            time_t t = (time_t) i->value().toLong() - offset;
+            time_t t = (time_t) i->value().toLong();
             struct tm lt;
             char res[32];
             const char* format = "%Y:%m:%d %H:%M:%S";
 
             if (t > 0) {
+                if (t > time(NULL)) {
+                    // Assume it's a time based 1904-01-01
+                    t -= offset;
+                }
+
                 gmtime_r(&t, &lt);
                 if (strftime(res, sizeof(res), format, &lt) == 0) {
                     fprintf(stderr, "strftime failed.");
@@ -356,9 +361,6 @@ static void parse_xmp_data(Exiv2::XmpData::const_iterator& i,
                 else {
                     node.Add("CreateDate", res);
                 }
-            }
-            else {
-                // fprintf(stderr, "Ignore invalid timestamp: %ld.", t);
             }
         }
         else if ( (tag == "Make" ||
