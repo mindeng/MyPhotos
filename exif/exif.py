@@ -14,6 +14,7 @@ Tag_DateTimeOriginal = 'DateTimeOriginal'
 Tag_DateTimeDigitized = 'DateTimeDigitized'
 Tag_DateTime = 'DateTime'
 Tag_CreateDate = 'CreateDate'
+Tag_CreationDate = 'CreationDate'
 Tag_ModifyDate = 'ModifyDate'
 Tag_FileModifyDate = 'FileModifyDate'
 
@@ -36,16 +37,29 @@ def get_exif_time(exif_info):
         Tag_DateTimeDigitized,
         Tag_DateTime,
         Tag_CreateDate,
+        Tag_CreationDate,
         Tag_ModifyDate,
         #Tag_FileModifyDate,
     ]
 
     for tag in TIME_TAGS:
         try:
-            v = exif_info.get(tag)[:19]
+            v = exif_info.get(tag)
+
+            if v and 'T' in v:
+                # ISO format, try to use python-dateutil to parse it
+                try:
+                    import dateutil
+                    import dateutil.parser
+                    return dateutil.parser.parse(v)
+                except ImportError:
+                    logging.warn('Cannot import dateutil.')
+                except ValueError:
+                    logging.warn('dateutil parse date error: %s.' % v)
+
+            v = v[:19]
             v = re.sub(r'[-T:]', ' ', v)
-            return datetime.datetime.strptime(
-                v, ExifInfo.TIME_FORMAT)
+            return datetime.datetime.strptime(v, ExifInfo.TIME_FORMAT)
         except (ValueError, TypeError) as e:
             pass
             
@@ -117,7 +131,7 @@ class PropertyDict(dict):
                 ensure_ascii=False).encode('utf-8')
     
 class ExifInfo(PropertyDict):
-    TIME_FORMAT = '%Y %m %d %H %M %S'
+    TIME_FORMAT  = '%Y %m %d %H %M %S'
 
     def _stringtify(self, copy):
         copy['create_time'] = str(self.create_time) if self.create_time else None
@@ -297,7 +311,7 @@ def get_exif_by_exiftool(filename):
     return ret
             
 def get_file_time(path):
-    return datetime.datetime.fromtimestamp(os.path.getctime(path))
+    return datetime.datetime.fromtimestamp(os.path.getmtime(path))
 
 # check if there are some jpg files that can be extract time info
 # by exiftool but can not extract time info by myexif

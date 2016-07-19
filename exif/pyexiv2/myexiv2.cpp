@@ -332,12 +332,43 @@ static void parse_xmp_data(Exiv2::XmpData::const_iterator& i,
 
     if (group == "video") {
         // printf("typeId: %d\n", i->value().typeId());
-        if (tag == "Make" ||
+
+        if ( ( tag == "DateUTC" ||
+                    tag == "TrackCreateDate" ||
+                    tag == "MediaCreateDate" ) &&
+                !(node.Has("DateTime") ||
+                    node.Has("DateTimeOriginal") ||
+                    node.Has("DateTimeDigitized") ||
+                    node.Has("CreateDate"))
+           ) {
+            // time zero is Jan 1, 1904, not Jan 1, 1970
+            const int offset = (66 * 365 + 17) * 24 * 3600;
+            time_t t = (time_t) i->value().toLong() - offset;
+            struct tm lt;
+            char res[32];
+            const char* format = "%Y:%m:%d %H:%M:%S";
+
+            if (t > 0) {
+                gmtime_r(&t, &lt);
+                if (strftime(res, sizeof(res), format, &lt) == 0) {
+                    fprintf(stderr, "strftime failed.");
+                }
+                else {
+                    node.Add("CreateDate", res);
+                }
+            }
+            else {
+                // fprintf(stderr, "Ignore invalid timestamp: %ld.", t);
+            }
+        }
+        else if ( (tag == "Make" ||
                 tag == "Model" ||
                 tag == "DateTime" ||
                 tag == "DateTimeOriginal" ||
                 tag == "DateTimeDigitized" ||
-                tag == "CreateDate") {
+                tag == "CreateDate" ||
+                tag == "CreationDate") && 
+                !node.Has(tag) ) {
             node.Add(tag, i->value().toString());
         }
         else if (tag == "MediaDuration") {
@@ -428,7 +459,7 @@ const std::string get_exif_info(const char* path)
     try {
         return _get_exif_info(path);
     }
-    catch (Exiv2::Error& e) {
+    catch (std::exception& e) {
         std::cout << "get_exif_info exception '" << e.what() << "'\n";
     }
     return "{}";

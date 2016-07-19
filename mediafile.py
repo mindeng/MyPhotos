@@ -21,6 +21,13 @@ _IMAGE_EXTS = set([
     '.nef',
     ])  
 
+_RAW_EXTS = set([
+    # sony raw file
+    '.arw',
+    # nikon raw file
+    '.nef',
+    ])
+
 _VIDEO_EXTS = set([
     # Video files
     '.avi',
@@ -113,6 +120,22 @@ class MediaFile(PropertyDict):
             self.media_type = MediaFile.MEDIA_VIDEO
         else:
             self.media_type = MediaFile.MEDIA_UNKNOWN
+
+    @staticmethod
+    def is_video(filename):
+        _, ext = os.path.splitext(filename)
+        ext = ext.lower()
+        return ext in _VIDEO_EXTS
+    @staticmethod
+    def is_image(filename):
+        _, ext = os.path.splitext(filename)
+        ext = ext.lower()
+        return ext in _IMAGE_EXTS
+    @staticmethod
+    def is_raw(filename):
+        _, ext = os.path.splitext(filename)
+        ext = ext.lower()
+        return ext in _RAW_EXTS
 
     # Only load exif info
     def load_exif_info(self, path):

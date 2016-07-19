@@ -307,21 +307,89 @@ def op_reload_exif(mdb, args, mf, dry_run):
     if not mf:
         return False
 
+    relative_path = mf.relative_path
+    path = mdb.abspath(relative_path)
+    if not os.path.isfile(path):
+        log("File %s does not exist, the related item will be cleanup." % relative_path)
+        if not dry_run:
+            mdb.del_mf(mf)
+            return True
+        else:
+            return False
+
     exif_info = ExifInfo(mdb.abspath(mf.relative_path))
 
+    def get_auto_create_dir_day(name):
+        try:
+            return datetime.datetime.strptime(name, '%Y%m%d')
+        except Exception:
+            return None
+
+    def correct_file_dir(path):
+        old_dir = os.path.dirname(path)
+        old_day_dir = os.path.basename(os.path.dirname(old_dir))
+        day = get_auto_create_dir_day(old_day_dir)
+
+        if day is None:
+            return None
+        if exif_info.create_time and day.year == exif_info.create_time.year and \
+                day.month == exif_info.create_time.month and \
+                day.day == exif_info.create_time.day:
+            return None
+
+        correct_dir = get_file_dir(args.media_dir, path, exif_info.create_time)
+        if correct_dir == os.path.dirname(path):
+            return None
+
+        if exif_info.create_time:
+            log("Creation time updated, move file %s to %s" % (path, correct_dir))
+        else:
+            log("File %s has no creation time, move it to %s" % (path, correct_dir))
+
+        if dry_run:
+            return None
+
+        if not os.path.isdir(correct_dir):
+            os.makedirs(correct_dir)
+        dst = os.path.join(correct_dir, mf.filename)
+
+        # Move the file to the correct_dir
+        if not copy_file(path, dst):
+            logging.error( 'Move file %s to %s failed.' % (path, correct_dir))
+            return None
+        else:
+            os.unlink(path)
+            mdb.update(
+                    mf.id,
+                    path=dst,
+                    relative_path=mdb.relpath(dst))
+            mdb.commit()
+
+            if not os.listdir(old_dir):
+                # old dir is empty, delete it
+                log("Directory %s is empty, so delete it." % old_dir)
+                os.rmdir(old_dir)
+            return path
+
     if exif_info == mf:
-        return False
+        return correct_file_dir(path) is not None
 
     # update exif info
-    log("Updating: %s" % mdb.abspath(mf.relative_path))
+    log("Updating: %s" % path)
     log("old: %s" % mf._exif_info)
     log("new: %s" % exif_info)
 
     if dry_run:
         return False
 
+    if exif_info.create_time != mf.create_time:
+        # Maybe need to move the file to another directory
+        correct_file_dir(path)
+
     mdb.update(
             mf.id,
+            path=path,
+            relative_path=relative_path,
             create_time=exif_info.create_time,
             exif_make=exif_info.exif_make,
             exif_model=exif_info.exif_model,
@@ -382,7 +450,7 @@ def op_cleanup(mdb, args, mf, dry_run):
     if os.path.isfile(mdb.abspath(mf.relative_path)):
         return False
 
-    log("File %s does not exist, the related item will be cleaned up." % mdb.abspath(mf.relative_path))
+    log("File %s does not exist, the related item will be cleanup." % mdb.abspath(mf.relative_path))
 
     if dry_run:
         return False
@@ -603,6 +671,31 @@ def do_diff(left_mdb, right_mdb, args):
     if count_only_in_right is not None:
         log('Only in dst: %d' % count_only_in_right)
 
+def get_file_dir(root, path, create_time):
+    _, ext = os.path.splitext(path)
+    ext = ext[1:]
+    category = 'OTHERS'
+    if MediaFile.is_video(path):
+        category = 'VIDEO'
+    elif ext:
+        category = ext.upper()
+
+    if create_time:
+        return os.path.join(root, 
+                create_time.strftime('%Y'), 
+                create_time.strftime('%Y%m'),
+                create_time.strftime('%Y%m%d'),
+                category)
+    else:
+        file_time = get_file_time(path)
+        return os.path.join(root, 
+                "UnknownCreationTime",
+                file_time.strftime('%Y'), 
+                file_time.strftime('%Y%m'),
+                file_time.strftime('%Y%m%d'),
+                category)
+
+
 def do_merge(left_mdb, right_mdb, args):
     dst_root = args.right
     it = left_mdb.iter()
@@ -620,12 +713,7 @@ def do_merge(left_mdb, right_mdb, args):
         else:
             count_only_in_left += 1
             src = left_mdb.abspath(src_mf.relative_path)
-            file_time = src_mf.create_time or get_file_time(src)
-            dst_dir = os.path.join(dst_root, 
-                    file_time.strftime('%Y'), 
-                    file_time.strftime('%Y%m'),
-                    file_time.strftime('%Y%m%d'),
-                    src_mf.file_extension[1:])
+            dst_dir = get_file_dir(dst_root, src, src_mf.create_time)
             dst = os.path.join(dst_dir, src_mf.filename)
 
             log('%s -> %s' % (src, dst))
