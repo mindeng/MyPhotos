@@ -11,7 +11,7 @@ import string
 
 MIN_FILE_SIZE = 10 * 1024
 TYPE_IMAGE, TYPE_VIDEO = 'image', 'video'
-_LAST_DB_VERSION = 1
+_CURRENT_DB_VERSION = 1
 
 #class Row(dict):
 #    """A dict that allows for object-like property access syntax."""
@@ -405,8 +405,29 @@ class MediaDatabase(object):
     def _cursor(self):
         return self._db.cursor()
 
+    # Upgrade database if user_version < _CURRENT_DB_VERSION
+    def _upgrade_db(self):
+        cursor = self._cursor()
+        db_version = self._execute(cursor,
+                'pragma user_version').fetchone()[0]
+        if db_version == 0:
+            # version 0 -> 1
+            # Add column "duration"
+            self._execute(cursor,
+                    'ALTER TABLE medias ADD COLUMN duration integer')
+
+        # Database has been upgraded
+        if db_version < _CURRENT_DB_VERSION:
+            self._execute(cursor, 'pragma user_version=%d' % _CURRENT_DB_VERSION)
+            self.commit()
+
     def _create_table(self):
         cursor = self._cursor()
+        self._execute(cursor, "SELECT name FROM sqlite_master WHERE type='table' AND name='medias';")
+        if cursor.fetchone():
+            # Table medias exists, upgrade it if it's an old version db
+            self._upgrade_db()
+
         # Create table medias
         self._execute(cursor,
                 '''CREATE TABLE IF NOT EXISTS medias 
@@ -435,16 +456,6 @@ class MediaDatabase(object):
                   duration integer)''')
         
         self.commit()
-
-        # Alter db to add duration fild if user_version == 0
-        self._db_version = self._execute(cursor,
-                'pragma user_version').fetchone()[0]
-        if self._db_version == 0:
-            self._execute(cursor,
-                    'ALTER TABLE medias ADD COLUMN duration integer')
-            self._execute(cursor, 'pragma user_version=1')
-            self.commit()
-        
             
     def close(self):
         self._db.close()
