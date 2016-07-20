@@ -20,6 +20,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#include <cerrno>
+
 #ifdef _WIN32
    //define something for Windows (32-bit and 64-bit, this part is common)
    #ifdef _WIN64
@@ -63,9 +65,9 @@ int cp_file(const char *src, const char *dst)
     /* Release the state variable */
     copyfile_state_free(s);
 
-    if (ret != 0) {
-        perror("cp_file");
-    }
+    //if (ret != 0) {
+    //    perror("cp_file");
+    //}
 
     return ret;
 }
@@ -189,13 +191,18 @@ myexif_cp_file(PyObject *self, PyObject *args)
 {
     const char *src;
     const char *dst;
+    const int msg_buf_len = 1024;
+    char errmsg[msg_buf_len] = "";
 
     if (!PyArg_ParseTuple(args, "ss", &src, &dst))
         return NULL;
 
     int ret = cp_file(src, dst);
+    if (ret != 0) {
+        strerror_r(errno, errmsg, msg_buf_len);
+    }
     
-    return Py_BuildValue("i", ret);
+    return Py_BuildValue("is", ret, errmsg);
 }
 
 static PyObject *

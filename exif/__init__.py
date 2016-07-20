@@ -15,7 +15,8 @@ def copy_file(src, dst):
     # c extension module can only handle encoded path
     src = utils.encode_text(src)
     dst = utils.encode_text(dst)
-    return cp_file(src, dst) == 0
+    ret, errmsg = cp_file(src, dst)
+    return ret == 0, errmsg
 
 def hex_middle_md5(path):
     # c extension module can only handle encoded path

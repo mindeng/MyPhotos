@@ -13,10 +13,10 @@ import timeit
 src = "/Users/min/Pictures/DSC_0001.JPG"
 dst = "/tmp/t/1.jpg"
 def testit():
-    try:
-        os.unlink(dst)
-    except OSError:
-        pass
+    #try:
+    #    os.unlink(dst)
+    #except OSError:
+    #    pass
     return myexif.cp_file(src, dst)
 
 print testit()

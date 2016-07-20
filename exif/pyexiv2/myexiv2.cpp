@@ -354,9 +354,10 @@ static void parse_xmp_data(Exiv2::XmpData::const_iterator& i,
                     t -= offset;
                 }
 
-                gmtime_r(&t, &lt);
+                //gmtime_r (&t, &lt);
+                localtime_r(&t, &lt);
                 if (strftime(res, sizeof(res), format, &lt) == 0) {
-                    fprintf(stderr, "strftime failed.");
+                    //fprintf(stderr, "strftime failed.");
                 }
                 else {
                     node.Add("CreateDate", res);

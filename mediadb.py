@@ -75,6 +75,9 @@ class MediaDatabase(object):
     CMP_GT      = ('>',)
     CMP_LT      = ('<',)
 
+    ORDER_BY     = 'order by'
+    DESC        = 'desc'
+
     # check if v is a placeholder value
     def _is_placeholder(self, v):
         return type(v) == type(MediaDatabase.IS_NOT_NULL)
@@ -100,7 +103,6 @@ class MediaDatabase(object):
                 parameters, kwparameters = self._decode_values(parameters, kwparameters)
                 return cursor.execute(sql, kwparameters or parameters)
         except Exception:
-            self.close()
             raise
         
     def _query(self, sql, *parameters, **kwparameters):
@@ -111,6 +113,14 @@ class MediaDatabase(object):
         return [MediaFile(zip(column_names, row)) for row in cursor]
 
     def _make_where_clause(self, kv):
+        if not kv:
+            return ''
+
+        order_by_clause = self._make_order_clause(kv)
+
+        if not kv:
+            return order_by_clause
+
         express_list = []
         for k, v in kv.items():
             express = None
@@ -138,7 +148,10 @@ class MediaDatabase(object):
             if express:
                 express_list.append(express)
 
-        return ' and '.join(express_list)
+        where = ''
+        if express_list:
+            where = ' where ' + ' and '.join(express_list)
+        return where + order_by_clause
 
         #return ' and '.join(('%s=:%s'%(k,k) 
         #    if (v is not None and v != MediaDatabase.IS_NOT_NULL) 
@@ -149,23 +162,36 @@ class MediaDatabase(object):
     def _make_set_clause(self, kv):
         return ','.join(('%s=:%s'%(k,k) for k in kv))
 
+    def _make_order_clause(self, kv):
+        order_by = None
+        desc = ''
+        for k,v in kv.items():
+            if k == MediaDatabase.ORDER_BY:
+                order_by = v
+                del kv[k]
+            elif k == MediaDatabase.DESC:
+                desc = 'desc'
+                del kv[k]
+
+        if order_by is None:
+            return ''
+        else:
+            return ' order by %s %s' % (order_by, desc)
+
     def update(self, id, **kwparameters):
         if kwparameters:
             sql = "update medias set %s where id=:id" % \
                     self._make_set_clause(kwparameters)
             kwparameters["id"] = id
         else:
-            return -1
+            return
         cursor = self._cursor()
         self._execute(cursor, sql, None, kwparameters)
 
     def iter(self, *parameters, **kwparameters):
         """Returns an iterator for the media items specified by the kwparameters."""
-        if kwparameters:
-            sql = "select * from medias where %s" % \
-                    self._make_where_clause(kwparameters)
-        else:
-            sql = "select * from medias"
+        sql = "select * from medias %s" % \
+                self._make_where_clause(kwparameters)
 
         #print sql, kwparameters
         cursor = self._cursor()
@@ -175,18 +201,15 @@ class MediaDatabase(object):
             yield MediaFile(zip(column_names, row))
 
     def count(self, *parameters, **kwparameters):
-        if kwparameters:
-            sql = "select count(*) from medias where %s" % \
-                    self._make_where_clause(kwparameters)
-        else:
-            sql = "select count(*) from medias"
+        sql = "select count(*) from medias %s" % \
+                self._make_where_clause(kwparameters)
         #print sql, kwparameters
         cursor = self._cursor()
         row = self._execute(cursor, sql, parameters, kwparameters).fetchone()
         return row and row[0] or 0
 
     def query(self, *parameters, **kwparameters):
-        sql = "select * from medias where %s" % \
+        sql = "select * from medias %s" % \
                 self._make_where_clause(kwparameters)
         return self._query(sql, *parameters, **kwparameters)
 
@@ -207,7 +230,7 @@ class MediaDatabase(object):
             return rows[0]
 
     def del_file(self, **kwparameters):
-        sql = 'delete from medias where %s' % \
+        sql = 'delete from medias %s' % \
               self._make_where_clause(kwparameters)
         self._execute(self._cursor(), sql, None, kwparameters)
 
@@ -291,7 +314,7 @@ class MediaDatabase(object):
             for name in files:
                 file_path = os.path.join(root, name)
                 if self.add_file(file_path):
-                    log("+ %s" % file_path)
+                    logging.info("+ %s" % file_path)
                     total_count += 1
                     count += 1
                     
@@ -302,7 +325,7 @@ class MediaDatabase(object):
                 
         self.commit()
 
-        log("Total added %d files." % total_count)
+        logging.info("Total added %d files." % total_count)
 
     def has(self, middle_md5=None, relative_path=None):
         if middle_md5:
