@@ -516,6 +516,8 @@ def do_update(mdb, args):
         mdb.commit()
 
         logging.info("Found %d file%s, %d updated." % (count, 's' if count>1 else '', success_count))
+    else:
+        logging.error("Please specify an update action.")
 
 def do_query(mdb, args):
     it = query_by_args(mdb, args)
@@ -664,8 +666,7 @@ def do_single_dir(args):
 
     if args.command == 'build':
         mdb.build(args.media_dir)
-
-    if args.command == 'add':
+    elif args.command == 'add':
         if args.path:
             path = args.path
             if not os.path.isfile(path):
@@ -678,11 +679,9 @@ def do_single_dir(args):
                 logging.info("+ %s" % path)
             else:
                 logging.error("Add file %s failed." % path)
-
-    if args.command == 'update':
+    elif args.command == 'update':
         do_update(mdb, args)
-
-    if args.command == 'query':
+    elif args.command == 'query':
         do_query(mdb, args)
 
 def do_diff(left_mdb, right_mdb, args):
