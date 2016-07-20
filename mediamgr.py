@@ -667,8 +667,17 @@ def do_single_dir(args):
 
     if args.command == 'add':
         if args.path:
-            if mdb.add_file(args.path):
-                logging.info("+ %s" % args.path)
+            path = args.path
+            if not os.path.isfile(path):
+                logging.info("File not found: %s." % path)
+            elif mdb.has(relative_path=mdb.relpath(path)):
+                logging.info("%s is in the database, nothing to do." % path)
+            elif not MediaDatabase.is_valid_media_file(path):
+                logging.error("Invalid media file: %s" % path)
+            elif mdb.add_file(path):
+                logging.info("+ %s" % path)
+            else:
+                logging.error("Add file %s failed." % path)
 
     if args.command == 'update':
         do_update(mdb, args)
@@ -835,7 +844,7 @@ def parse_gps_values(text):
     return [float(v) if v else None for v in gps_values]
 
 def main(args):
-    if args.command in ['build', 'update', 'query']:
+    if args.command in ['build', 'update', 'query', 'add']:
         do_single_dir(args)
 
     if args.command in ['diff', 'merge']:

@@ -41,6 +41,8 @@ class MediaDatabase(object):
         self._init_db()
         self._create_table()
 
+        self._fs_nocase = is_fs_case_insensitive() and 'COLLATE NOCASE' or ''
+
     def __del__(self):
         self.close()
 
@@ -121,6 +123,9 @@ class MediaDatabase(object):
         if not kv:
             return order_by_clause
 
+        if 'path' in kv:
+            raise Exception("Should not query by column path.")
+
         express_list = []
         for k, v in kv.items():
             express = None
@@ -143,7 +148,8 @@ class MediaDatabase(object):
                 # set the actual value for the key
                 kv[k] = v[1]
             elif v:
-                express = '%s=:%s' % (col, k)
+                no_case = k in self._nocase_columns and self._fs_nocase or ''
+                express = '%s=:%s %s' % (col, k, no_case)
 
             if express:
                 express_list.append(express)
@@ -327,15 +333,9 @@ class MediaDatabase(object):
 
         logging.info("Total added %d files." % total_count)
 
-    def has(self, middle_md5=None, relative_path=None):
-        if middle_md5:
-            sql = 'select count(*) from medias where middle_md5=?'
-            values = (middle_md5,)
-        elif relative_path:
-            sql = 'select count(*) from medias where relative_path=?'
-            values = (relative_path,)
-            
-        row = self._execute(self._cursor(), sql, values).fetchone()
+    def has(self, **kw):
+        sql = 'select count(*) from medias %s' % self._make_where_clause(kw)
+        row = self._execute(self._cursor(), sql, None, kw).fetchone()
         return row and row[0] > 0
 
     def _save(self, mf):
@@ -413,8 +413,11 @@ class MediaDatabase(object):
         if db_version == 0:
             # version 0 -> 1
             # Add column "duration"
-            self._execute(cursor,
-                    'ALTER TABLE medias ADD COLUMN duration integer')
+            try:
+                self._execute(cursor,
+                        'ALTER TABLE medias ADD COLUMN duration integer')
+            except sqlite3.OperationalError, e:
+                logging.error('Upgrade to database version 1 failed: %s' % e)
 
         # Database has been upgraded
         if db_version < _CURRENT_DB_VERSION:
@@ -427,6 +430,9 @@ class MediaDatabase(object):
         if cursor.fetchone():
             # Table medias exists, upgrade it if it's an old version db
             self._upgrade_db()
+
+        # Specify no case columns for case insensitive filesystem
+        self._nocase_columns = set(['filename', 'relative_path'])
 
         # Create table medias
         self._execute(cursor,

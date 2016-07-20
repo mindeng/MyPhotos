@@ -52,3 +52,19 @@ def is_media_file(path):
 def is_image_file(path):
     extension = os.path.splitext(path)[1].lower()
     return extension in _IMAGE_EXTS
+
+import tempfile
+
+# Check if current filesystem is case insensitive
+def is_fs_case_insensitive(path=None):
+    def is_insensitive(filename):
+        head, tail = os.path.split(filename)
+        testpath1 = os.path.join(head, tail.lower())
+        testpath2 = os.path.join(head, tail.upper())
+        return os.path.exists(testpath1) and os.path.exists(testpath2)
+
+    if path and os.path.isfile(path):
+        return is_insensitive(path)
+    else:
+        with tempfile.NamedTemporaryFile(prefix='TmP',dir=path) as tmp_file:
+            return is_insensitive(tmp_file.name)
