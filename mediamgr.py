@@ -707,11 +707,11 @@ def do_diff(left_mdb, right_mdb, args):
     if not args.only_inleft:
         count_only_in_right, count_same = log_files_only_db1(right_mdb, left_mdb, '+')
     
-    logging.info('Same files: %d' % count_same)
     if count_only_in_left is not None:
         logging.info('Only in src: %d' % count_only_in_left)
     if count_only_in_right is not None:
         logging.info('Only in dst: %d' % count_only_in_right)
+    logging.info(    ' Same files: %d' % count_same)
 
 def get_file_dir(root, path, create_time):
     _, ext = os.path.splitext(path)
@@ -809,9 +809,9 @@ def do_merge(left_mdb, right_mdb, args):
 
     right_mdb.commit()
 
-    logging.info('Same files: %d' % count_same)
-    logging.info('Only in src: %d' % count_only_in_left)
+    logging.info(' Only in src: %d' % count_only_in_left)
     logging.info('Copied files: %d' % copied)
+    logging.info('  Same files: %d' % count_same)
 
 def do_multi_dirs(args):
 
