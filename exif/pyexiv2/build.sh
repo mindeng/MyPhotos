@@ -1,6 +1,11 @@
 #! /bin/bash
 
-export EXIV2_PATH=/Users/min/Tools/exif/exiv2-0.25
+#export EXIV2_PATH=/Users/min/Tools/exif/exiv2-0.25
+
+if [ "x$EXIV2_PATH" == "x" ]; then
+    echo Please set env EXIV2_PATH first.
+    exit 1
+fi
 
 function build_module
 {
