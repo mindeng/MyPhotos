@@ -6,4 +6,4 @@
 exif/build
 *.o
 exif/sample
-
+exif/pyexiv2/exiv2-0.25*

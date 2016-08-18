@@ -31,9 +31,8 @@
 #include <copyfile.h>
 #elif __linux__
     // linux
-
+#include <utime.h>
 // For sendfile
-#include <iostream>
 #include <sys/sendfile.h>  // sendfile
 #include <fcntl.h>         // open
 #include <unistd.h>        // close
@@ -77,6 +76,7 @@ int cp_file(const char *src, const char *dst)
     struct stat stat_source;
     int source = open(src, O_RDONLY, 0);
     int dest = open(dst, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    struct utimbuf dst_times;
 
     // struct required, rationale: function stat() exists also
     fstat(source, &stat_source);
@@ -84,6 +84,10 @@ int cp_file(const char *src, const char *dst)
 
     close(source);
     close(dest);
+
+    dst_times.actime = stat_source.st_atime;
+    dst_times.modtime = stat_source.st_mtime;
+    utime(dst, &dst_times);
 
     return 0;
 }
