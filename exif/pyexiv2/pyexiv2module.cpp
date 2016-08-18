@@ -31,6 +31,7 @@
 #include <copyfile.h>
 #elif __linux__
     // linux
+// for utime
 #include <utime.h>
 // For sendfile
 #include <sys/sendfile.h>  // sendfile
@@ -39,6 +40,8 @@
 #include <sys/stat.h>      // fstat
 #include <sys/types.h>     // fstat
 #include <ctime>
+// for strerror
+#include <string.h>
 
 #elif __unix__ // all unices not caught above
     // Unix
@@ -77,10 +80,35 @@ int cp_file(const char *src, const char *dst)
     int source = open(src, O_RDONLY, 0);
     int dest = open(dst, O_WRONLY | O_CREAT | O_EXCL, 0644);
     struct utimbuf dst_times;
+    off64_t offset = 0;
+    int rc;
 
     // struct required, rationale: function stat() exists also
     fstat(source, &stat_source);
-    sendfile(dest, source, 0, stat_source.st_size);
+
+    /* copy file using sendfile */
+    while (offset < stat_source.st_size) {
+        size_t count;
+        off64_t remaining = stat_source.st_size - offset;
+        if (remaining > SSIZE_MAX)
+            count = SSIZE_MAX;
+        else 
+            count = remaining;
+        rc = sendfile64 (dest, source, &offset, count);
+        if (rc == 0) {
+            break;
+        }
+        if (rc == -1) {
+            fprintf(stderr, "error from sendfile: %s\n", strerror(errno));
+            exit(1);
+        }
+    }
+    if (offset != stat_source.st_size) {
+        fprintf(stderr, "incomplete transfer from sendfile: %lld of %lld bytes\n",
+                (long long)(offset + rc),
+                (long long)stat_source.st_size);
+        exit(1);
+    }
 
     close(source);
     close(dest);
