@@ -657,6 +657,31 @@ def query_by_args(mdb, args):
     else:
         return mdb.iter(**kwparameters)
 
+def build_mdb(mdb, path):
+    path = os.path.abspath(path)
+    success_count = 0
+    count_for_commit = 0
+    for root, dirs, files in os.walk(path, topdown=True):
+        for name in files:
+            file_path = os.path.join(root, name)
+                
+            if not is_valid_media_file(file_path):
+                logging.info("Ignore file: %s." % file_path)
+                continue
+
+            if mdb.add_file(file_path):
+                logging.info("+ %s" % file_path)
+                success_count += 1
+                count_for_commit += 1
+                
+                if count_for_commit >= 1000:
+                    mdb.commit()
+                    count_for_commit = 0
+            
+    mdb.commit()
+
+    logging.info("Added files: %d." % success_count)
+
 def do_single_dir(args):
     if args.command != 'build' and not os.path.isfile(args.db_path):
         logging.error("No database file under %s. Please run 'mediamgr.py build' to build media database first.")
@@ -665,7 +690,7 @@ def do_single_dir(args):
     mdb = MediaDatabase(args.db_path)
 
     if args.command == 'build':
-        mdb.build(args.media_dir)
+        build_mdb(mdb, args.media_dir)
     elif args.command == 'add':
         if args.path:
             path = args.path
@@ -673,7 +698,7 @@ def do_single_dir(args):
                 logging.info("File not found: %s." % path)
             elif mdb.has(relative_path=mdb.relpath(path)):
                 logging.info("%s is in the database, nothing to do." % path)
-            elif not MediaDatabase.is_valid_media_file(path):
+            elif not is_valid_media_file(path):
                 logging.error("Invalid media file: %s" % path)
             elif mdb.add_file(path):
                 logging.info("+ %s" % path)
@@ -717,7 +742,7 @@ def get_file_dir(root, path, create_time):
     _, ext = os.path.splitext(path)
     ext = ext[1:]
     category = 'OTHERS'
-    if MediaFile.is_video(path):
+    if is_video_file(path):
         category = 'VIDEO'
     elif ext:
         category = ext.upper()

@@ -8,34 +8,6 @@ import json
 #import mmap
 from utils import *
 
-_IMAGE_EXTS = set([
-    # Image files
-    '.jpg',
-    '.png',
-    '.tif',
-    '.tiff',
-
-    # sony raw file
-    '.arw',
-    # nikon raw file
-    '.nef',
-    ])  
-
-_RAW_EXTS = set([
-    # sony raw file
-    '.arw',
-    # nikon raw file
-    '.nef',
-    ])
-
-_VIDEO_EXTS = set([
-    # Video files
-    '.avi',
-    '.mp4',
-    '.mov',
-    '.m4v'
-    ])  
-
 class MediaFile(PropertyDict):
     MEDIA_UNKNOWN = 0
     MEDIA_IMAGE = 'image'
@@ -114,28 +86,12 @@ class MediaFile(PropertyDict):
         #    raise IllegalMediaFile(
         #        "File size is too small: " + self.file_size)
 
-        if self.file_extension in _IMAGE_EXTS:
+        if is_image_file(self.filename):
             self.media_type = MediaFile.MEDIA_IMAGE
-        elif self.file_extension in _VIDEO_EXTS:
+        elif is_video_file(self.filename):
             self.media_type = MediaFile.MEDIA_VIDEO
         else:
             self.media_type = MediaFile.MEDIA_UNKNOWN
-
-    @staticmethod
-    def is_video(filename):
-        _, ext = os.path.splitext(filename)
-        ext = ext.lower()
-        return ext in _VIDEO_EXTS
-    @staticmethod
-    def is_image(filename):
-        _, ext = os.path.splitext(filename)
-        ext = ext.lower()
-        return ext in _IMAGE_EXTS
-    @staticmethod
-    def is_raw(filename):
-        _, ext = os.path.splitext(filename)
-        ext = ext.lower()
-        return ext in _RAW_EXTS
 
     # Only load exif info
     def load_exif_info(self, path):

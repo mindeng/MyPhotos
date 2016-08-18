@@ -268,30 +268,6 @@ class MediaDatabase(object):
             return path
         return os.path.abspath(os.path.join(self._db_dir, path))
 
-    @staticmethod
-    def is_valid_media_file(path):
-        file_path = path
-        name = os.path.basename(path)
-        
-        if not os.path.isfile(file_path):
-            # Ignore non-files, e.g. symbol links
-            return False
-            
-        if name.startswith('.'):
-            #log('Ignore hidden file: %s' % file_path)
-            return False
-
-        size = os.path.getsize(file_path)
-        
-        if not is_media_file(file_path):
-            return False
-            
-        #if size < MIN_FILE_SIZE:
-        #    log('Ignore small file: %s' % path)
-        #    return False
-
-        return True
-
     def add_mf(self, mf):
         return self._save(mf)
 
@@ -299,7 +275,7 @@ class MediaDatabase(object):
         if not os.path.isabs(path):
             path = os.path.abspath(path)
             
-        if not MediaDatabase.is_valid_media_file(path):
+        if not is_valid_media_file(path):
             return False
 
         relative_path = self.relpath(path)
@@ -311,27 +287,6 @@ class MediaDatabase(object):
         
         mf = MediaFile(path=path, relative_path=relative_path)
         return self._save(mf)
-
-    def build(self, path):
-        path = os.path.abspath(path)
-        total_count = 0
-        count = 0
-        for root, dirs, files in os.walk(path, topdown=True):
-            for name in files:
-                file_path = os.path.join(root, name)
-                if self.add_file(file_path):
-                    logging.info("+ %s" % file_path)
-                    total_count += 1
-                    count += 1
-                    
-                    if count >= 1000:
-                        self.commit()
-                        count = 0
-                        # log("Added %d files." % total_count)
-                
-        self.commit()
-
-        logging.info("Total added %d files." % total_count)
 
     def has(self, **kw):
         sql = 'select count(*) from medias %s' % self._make_where_clause(kw)
@@ -396,6 +351,7 @@ class MediaDatabase(object):
             logging.error(
                 'Add file failed(IntegrityError): %s conflict with: %s'
                 % (mf.relative_path, mf2.relative_path))
+            raise
 
         return False
 

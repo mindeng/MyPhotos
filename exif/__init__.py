@@ -1,3 +1,6 @@
+from pyexiv2 import linkso
+linkso.link_so()
+
 from exif import ExifInfo, PropertyDict
 from exif import get_file_time
 from myexif import calc_middle_md5

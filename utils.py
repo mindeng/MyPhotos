@@ -14,12 +14,20 @@ _IMAGE_EXTS = set([
     '.nef',
     ])
 
+_RAW_EXTS = set([
+    # sony raw file
+    '.arw',
+    # nikon raw file
+    '.nef',
+    ])
+
 _VIDEO_EXTS = set([
     # Video files
     '.avi',
     '.mp4',
     '.mov',
-    '.m4v'
+    '.m4v',
+    '.gif',
         ])
 
 def log(s):
@@ -44,6 +52,28 @@ def encode_text(text):
         return text.encode('utf-8')
     return text
 
+def is_valid_media_file(path):
+    file_path = path
+    name = os.path.basename(path)
+    
+    if not os.path.isfile(file_path):
+        # Ignore non-files, e.g. symbol links
+        return False
+        
+    if name.startswith('.'):
+        #log('Ignore hidden file: %s' % file_path)
+        return False
+
+    if not is_media_file(file_path):
+        return False
+
+    #size = os.path.getsize(file_path)
+    #if size < MIN_FILE_SIZE:
+    #    log('Ignore small file: %s' % path)
+    #    return False
+
+    return True
+
 def is_media_file(path):
     extension = os.path.splitext(path)[1].lower()
     return extension in _IMAGE_EXTS or \
@@ -52,6 +82,14 @@ def is_media_file(path):
 def is_image_file(path):
     extension = os.path.splitext(path)[1].lower()
     return extension in _IMAGE_EXTS
+
+def is_video_file(path):
+    extension = os.path.splitext(path)[1].lower()
+    return extension in _VIDEO_EXTS
+
+def is_raw_file(path):
+    extension = os.path.splitext(path)[1].lower()
+    return extension in _RAW_EXTS
 
 import tempfile
 
@@ -68,3 +106,4 @@ def is_fs_case_insensitive(path=None):
     else:
         with tempfile.NamedTemporaryFile(prefix='TmP',dir=path) as tmp_file:
             return is_insensitive(tmp_file.name)
+

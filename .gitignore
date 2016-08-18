@@ -7,3 +7,6 @@ exif/build
 *.o
 exif/sample
 exif/pyexiv2/exiv2-0.25*
+exif/myexif.so
+key.txt
+tmp

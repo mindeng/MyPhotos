@@ -1,22 +1,9 @@
 from distutils.core import setup, Extension
 import os
 import platform
+from linkso import *
 
-architecture = platform.architecture()
-OS_MAC, OS_LINUX = 1, 2
-OS = OS_MAC
-if not architecture[0].startswith('64'):
-    print 'Only support 64bit architecture currently, abort.'
-    exit(1)
-
-if platform.mac_ver()[0]:
-    # MAC OS X
-    OS = OS_MAC
-elif platform.linux_distribution()[0]:
-    OS = OS_LINUX
-else:
-    print 'Only support Mac OS X and Linux currently, abort.'
-    exit(1)
+OS = get_os()
 
 # Default params for OS X
 extra_objects = [ 'libexiv2-osx.a', ]
@@ -27,6 +14,7 @@ libraries = [
         "ssl",
         ]
 
+# Params for OS X
 if OS is OS_LINUX:
     extra_objects = [ 'libexiv2-linux-amd64.a', ]
     libraries = [
@@ -36,6 +24,10 @@ if OS is OS_LINUX:
             ]
 
 EXIV2_PATH = os.getenv('EXIV2_PATH')
+if not EXIV2_PATH:
+    print 'Please set env EXIV2_PATH first.'
+    exit(2)
+
 EXIV2_INCLUDE_PATH = os.path.join(EXIV2_PATH, 'include')
 
 module1 = Extension('myexif',
@@ -61,19 +53,6 @@ setup (name = 'myexif',
        description = 'My exif tool',
        ext_modules = [module1])
 
-def link_so():
-    module_path = os.path.abspath( os.path.dirname( os.path.realpath(__file__) ) )
-    so = 'myexif.so'
-    if OS is OS_MAC:
-        so_relpath = os.path.join('build/lib.macosx-10.11-x86_64-2.7/', so)
-    else:
-        so_relpath = os.path.join('build/lib.linux-x86_64-2.7/', so)
-    so_abspath = os.path.join(module_path, so_relpath)
-    dst = os.path.join(module_path, '..', so)
-    print 'ln -s %s %s' % (so_abspath, dst)
-    os.unlink(dst)
-    os.symlink(so_abspath, dst)
-
 import sys
 if len(sys.argv) > 1 and sys.argv[1] == 'build':
-    link_so()
+    link_so(True)
