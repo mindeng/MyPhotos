@@ -582,6 +582,7 @@ def query_by_args(mdb, args):
     def handle_arg_date(v):
         t1 = parse_user_input_date(v)
         d = datetime.timedelta(days=1)
+        t2 = t1 + d
         v = v.replace('-', '')
         if len(v) == len('2016'):
             t2 = datetime.datetime(year=t1.year+1, month=1, day=1)
