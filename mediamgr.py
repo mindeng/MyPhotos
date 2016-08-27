@@ -673,10 +673,6 @@ def build_mdb(mdb, path, no_exif):
         for name in files:
             file_path = os.path.join(root, name)
                 
-            if not is_valid_media_file(file_path):
-                logging.info("Ignore file: %s." % file_path)
-                continue
-
             res = mdb.add_file(file_path, no_exif)
             if res == MediaDatabase.CONFLICT:
                 failed_count += 1
@@ -730,7 +726,8 @@ def do_diff(left_mdb, right_mdb, args):
                     file_size=item.file_size,
                     create_time=item.create_time
             ):
-                logging.info('%s %s %s' % (prefix, item.path, item.middle_md5))
+                if not args.only_count:
+                    logging.info('%s %s %s' % (prefix, item.path, item.middle_md5))
                 count_only_in_db1 += 1
             else:
                 count_same += 1
