@@ -48,6 +48,12 @@ def parse_cmd_args():
         help='Destination media root directory in diff/merge mode'
     )
 
+    # args for build
+    parser.add_argument(
+            '--no-exif',
+            action='store_true',
+            help='Do not parse exif info for media files.')
+
     # args for query
     parser.add_argument(
             '--filename',
@@ -657,7 +663,7 @@ def query_by_args(mdb, args):
     else:
         return mdb.iter(**kwparameters)
 
-def build_mdb(mdb, path):
+def build_mdb(mdb, path, no_exif):
     path = os.path.abspath(path)
     success_count = 0
     count_for_commit = 0
@@ -669,7 +675,7 @@ def build_mdb(mdb, path):
                 logging.info("Ignore file: %s." % file_path)
                 continue
 
-            if mdb.add_file(file_path):
+            if mdb.add_file(file_path, no_exif):
                 logging.info("+ %s" % file_path)
                 success_count += 1
                 count_for_commit += 1
@@ -690,7 +696,7 @@ def do_single_dir(args):
     mdb = MediaDatabase(args.db_path)
 
     if args.command == 'build':
-        build_mdb(mdb, args.media_dir)
+        build_mdb(mdb, args.media_dir, args.no_exif)
     elif args.command == 'add':
         if args.path:
             path = args.path

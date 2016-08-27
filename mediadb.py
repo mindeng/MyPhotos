@@ -271,7 +271,7 @@ class MediaDatabase(object):
     def add_mf(self, mf):
         return self._save(mf)
 
-    def add_file(self, path):
+    def add_file(self, path, no_exif=False):
         if not os.path.isabs(path):
             path = os.path.abspath(path)
             
@@ -285,7 +285,7 @@ class MediaDatabase(object):
             
         #log("+ %s" % relative_path)
         
-        mf = MediaFile(path=path, relative_path=relative_path)
+        mf = MediaFile(path=path, relative_path=relative_path, no_exif=no_exif)
         return self._save(mf)
 
     def has(self, **kw):

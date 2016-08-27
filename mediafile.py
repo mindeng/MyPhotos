@@ -41,10 +41,18 @@ class MediaFile(PropertyDict):
         if path:
             # init from path
             super(MediaFile, self).__init__()
+
             self._exif_info = ExifInfo()
+            if kwparameters.get('no_exif'):
+                self.load_file_info(path)
+            else:
+                self.load_from_path(path)
+
             self.relative_path = relative_path
             self.id = None
-            self.load_from_path(path)
+            self.tags = ''
+            self.description = ''
+
         else:
             # init from db row or empty dict
             super(MediaFile, self).__init__(*parameters, **kwparameters)
@@ -62,10 +70,6 @@ class MediaFile(PropertyDict):
     def load_from_path(self, path):
         self.load_exif_info(path)
         self.load_file_info(path)
-
-        # init user info
-        self.tags = ''
-        self.description = ''
 
     # Load base file info & md5
     def load_file_info(self, path):
