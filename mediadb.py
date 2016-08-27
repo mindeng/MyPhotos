@@ -428,6 +428,7 @@ class MediaDatabase(object):
                   description text,
                   duration integer)''')
         
+        self._execute(cursor, 'pragma user_version=%d' % _CURRENT_DB_VERSION)
         self.commit()
             
     def close(self):
