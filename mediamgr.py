@@ -710,6 +710,7 @@ def do_single_dir(args):
                 logging.error("Invalid media file: %s" % path)
             elif mdb.add_file(path) == MediaDatabase.SUCCESS:
                 logging.info("+ %s" % path)
+                mdb.commit()
     elif args.command == 'update':
         do_update(mdb, args)
     elif args.command == 'query':

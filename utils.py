@@ -26,6 +26,7 @@ _VIDEO_EXTS = set([
     '.avi',
     '.mp4',
     '.mov',
+    '.m4a',
     '.m4v',
     '.gif',
         ])
