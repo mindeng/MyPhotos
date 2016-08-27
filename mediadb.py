@@ -8,6 +8,7 @@ import logging
 import re
 import json
 import string
+from exif import equal_file
 
 MIN_FILE_SIZE = 10 * 1024
 TYPE_IMAGE, TYPE_VIDEO = 'image', 'video'
@@ -31,8 +32,13 @@ _CURRENT_DB_VERSION = 1
 #            indent=4, separators=(',', ': '),
 #            ensure_ascii=False).encode('utf-8')
     
-
 class MediaDatabase(object):
+
+    CONFLICT  = 0
+    SUCCESS   = 1
+    EXISTS    = 2
+    REPEATED  = 3
+    INVALID   = 4
 
     def __init__(self, path=":memory:"):
         self._db_path = os.path.abspath(path)
@@ -276,12 +282,12 @@ class MediaDatabase(object):
             path = os.path.abspath(path)
             
         if not is_valid_media_file(path):
-            return False
+            return MediaDatabase.INVALID
 
         relative_path = self.relpath(path)
 
         if self.has(relative_path=relative_path):
-            return False
+            return MediaDatabase.EXISTS
             
         #log("+ %s" % relative_path)
         
@@ -345,15 +351,20 @@ class MediaDatabase(object):
                 mf.description         ,
                 mf.duration            ,
             ))
-            return True
+            return MediaDatabase.SUCCESS
         except sqlite3.IntegrityError:
             mf2 = self.get(middle_md5=mf.middle_md5)
-            logging.error(
-                'Add file failed(IntegrityError): %s conflict with: %s'
-                % (mf.relative_path, mf2.relative_path))
-            raise
-
-        return False
+            if equal_file(self.abspath(mf.relative_path), self.abspath(mf2.relative_path)):
+                # Repeated file, ignore it
+                logging.info(
+                    'File %s repeated with %s, ignore it.'
+                    % (mf.relative_path, mf2.relative_path))
+                return MediaDatabase.REPEATED
+            else:
+                logging.error(
+                    'Add file failed(IntegrityError): %s conflict with: %s'
+                    % (mf.relative_path, mf2.relative_path))
+                return MediaDatabase.CONFLICT
 
     def commit(self):
         self._db.commit()

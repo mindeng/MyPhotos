@@ -1,5 +1,6 @@
 #include <Python.h>
 #include <string>
+#include <assert.h>
 
 // For md5
 #include <cstdio>
@@ -130,7 +131,7 @@ static char* map_file(const char* path, unsigned int* size)
     /* 打开文件 */  
     if ((fd = open(path, O_RDONLY)) < 0) {  
         perror("open");
-	return NULL;
+        return NULL;
     }  
   
     /* 获取文件的属性 */  
@@ -217,6 +218,66 @@ static void calc_middle_md5(const char* path, unsigned char* out)
         unmap_file(buf, total_size);
     }
 }
+//
+static void calc_md5(const char* path, unsigned char* out)
+{
+    unsigned int total_size = 0;
+    char *buf = map_file(path, &total_size);
+    
+    if (buf != NULL) {
+        MD5_CTX c;
+        const char* data = buf;
+
+        MD5_Init(&c);
+
+        // calc for the whole file
+        md5_update(c, data, total_size);
+
+        MD5_Final(out, &c);
+        unmap_file(buf, total_size);
+    }
+}
+
+static int cmp_file(const char* path1, const char* path2)
+{
+    struct stat stat1, stat2;
+    int fd1, fd2;
+
+    if ((fd1 = open(path1, O_RDONLY)) < 0) {  
+        perror("open");
+        return 1;
+    }  
+    if ((fd2 = open(path2, O_RDONLY)) < 0) {
+        perror("open");
+        return 1;
+    }  
+
+    fstat(fd1, &stat1);
+    fstat(fd2, &stat2);
+
+    if (stat1.st_size != stat2.st_size) {
+        return 1;
+    }
+    else {
+        unsigned int total_size1, total_size2;
+        char *buf1 = map_file(path1, &total_size1);
+        char *buf2 = map_file(path2, &total_size2);
+        int res = 1;
+
+        assert(buf1 != NULL && buf2 != NULL);
+
+        if (buf1 != NULL && buf2 != NULL) {
+            assert(total_size1 == total_size2);
+
+            res = memcmp(buf1, buf2, total_size1);
+
+            unmap_file(buf1, total_size1);
+            unmap_file(buf2, total_size2);
+        }
+
+        return res;
+    }
+}
 
 static PyObject *
 myexif_cp_file(PyObject *self, PyObject *args)
@@ -241,13 +302,19 @@ static PyObject *
 myexif_calc_middle_md5(PyObject *self, PyObject *args)
 {
     const char *path;
+    int full;
     const int DIGEST_LEN = 16;
     unsigned char digest[DIGEST_LEN];
 
-    if (!PyArg_ParseTuple(args, "s", &path))
+    if (!PyArg_ParseTuple(args, "si", &path, &full))
         return NULL;
 
-    calc_middle_md5(path, digest);
+    if (full == 1) {
+        calc_md5(path, digest);
+    }
+    else {
+        calc_middle_md5(path, digest);
+    }
     
     return Py_BuildValue("s#", digest, DIGEST_LEN);
 }
@@ -263,6 +330,20 @@ myexif_get_exif_info(PyObject *self, PyObject *args)
     std::string exif_info = get_exif_info(path);
     
     return Py_BuildValue("s", exif_info.c_str());
+}
+
+static PyObject *
+myexif_cmp_file(PyObject *self, PyObject *args)
+{
+    const char *path1;
+    const char *path2;
+
+    if (!PyArg_ParseTuple(args, "ss", &path1, &path2))
+        return NULL;
+
+    int res = cmp_file(path1, path2);
+    
+    return Py_BuildValue("i", res);
 }
 
 static PyMethodDef myexif_methods[] = {
@@ -289,6 +370,13 @@ static PyMethodDef myexif_methods[] = {
     (PyCFunction)myexif_cp_file,
     METH_VARARGS | METH_KEYWORDS,
     "Copy file."
+  },
+
+  {
+    "compare_file",
+    (PyCFunction)myexif_cmp_file,
+    METH_VARARGS | METH_KEYWORDS,
+    "Compare two files."
   },
 
   

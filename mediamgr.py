@@ -666,6 +666,7 @@ def query_by_args(mdb, args):
 def build_mdb(mdb, path, no_exif):
     path = os.path.abspath(path)
     success_count = 0
+    failed_count = 0
     count_for_commit = 0
     for root, dirs, files in os.walk(path, topdown=True):
         for name in files:
@@ -675,7 +676,10 @@ def build_mdb(mdb, path, no_exif):
                 logging.info("Ignore file: %s." % file_path)
                 continue
 
-            if mdb.add_file(file_path, no_exif):
+            res = mdb.add_file(file_path, no_exif)
+            if res == MediaDatabase.CONFLICT:
+                failed_count += 1
+            elif res == MediaDatabase.SUCCESS:
                 logging.info("+ %s" % file_path)
                 success_count += 1
                 count_for_commit += 1
@@ -686,7 +690,8 @@ def build_mdb(mdb, path, no_exif):
             
     mdb.commit()
 
-    logging.info("Added files: %d." % success_count)
+    logging.info("Success added: %d." % success_count)
+    logging.info("       Failed: %d." % failed_count)
 
 def do_single_dir(args):
     if args.command != 'build' and not os.path.isfile(args.db_path):
@@ -706,10 +711,8 @@ def do_single_dir(args):
                 logging.info("%s is in the database, nothing to do." % path)
             elif not is_valid_media_file(path):
                 logging.error("Invalid media file: %s" % path)
-            elif mdb.add_file(path):
+            elif mdb.add_file(path) == MediaDatabase.SUCCESS:
                 logging.info("+ %s" % path)
-            else:
-                logging.error("Add file %s failed." % path)
     elif args.command == 'update':
         do_update(mdb, args)
     elif args.command == 'query':

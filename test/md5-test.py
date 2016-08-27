@@ -11,7 +11,13 @@ sys.path.append(
             os.path.realpath(__file__) ), '..') ))
 import exif
 from exif.myexif import calc_middle_md5
+from exif import hex_middle_md5
+from exif import cmp_file
 
+
+path = '/Users/min/Pictures/DSC_0001.JPG'
+print hex_middle_md5(path), hex_middle_md5(path, True)
+print cmp_file(path, path)
 
 def test_calc_middle_md5():
     #calc_middle_md5('/Volumes/sg2/01Photos/2016/201604/Raw/DSC_0161.NEF')
