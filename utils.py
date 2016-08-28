@@ -1,5 +1,6 @@
 import sys
 import os
+import uuid
 
 _IMAGE_EXTS = set([
     # Image files
@@ -108,3 +109,11 @@ def is_fs_case_insensitive(path=None):
         with tempfile.NamedTemporaryFile(prefix='TmP',dir=path) as tmp_file:
             return is_insensitive(tmp_file.name)
 
+def unique_filename(filename):
+    prefix, ext = os.path.splitext(filename)
+    iter_count = 1
+    while os.path.isfile(filename):
+        random_str = uuid.uuid4().hex[:iter_count]
+        filename = '%s_%s%s' % (prefix, random_str, ext)
+        iter_count += 1
+    return filename

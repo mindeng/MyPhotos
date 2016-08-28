@@ -2,7 +2,7 @@
 
 from utils import *
 from mediadb import MediaDatabase
-from exif import ExifInfo, get_file_time, hex_middle_md5
+from exif import ExifInfo, get_file_time, hex_middle_md5, equal_file
 from mediafile import MediaFile
 import re
 import sqlite3
@@ -791,10 +791,13 @@ def do_merge(left_mdb, right_mdb, args):
             dst_dir = get_file_dir(dst_root, src, src_mf.create_time)
             dst = os.path.join(dst_dir, src_mf.filename)
 
-            logging.info('%s -> %s' % (src, dst))
-
             if not os.path.isdir(dst_dir):
                 os.makedirs(dst_dir)
+
+            if os.path.isfile(dst):
+                dst = unique_filename(dst)
+
+            logging.info('%s -> %s' % (src, dst))
 
             def _copy():
                 if args.dry_run:
@@ -816,29 +819,8 @@ def do_merge(left_mdb, right_mdb, args):
                     os.unlink(dst)
                     return False
 
-            if os.path.isfile(dst):
-                dst_mf = MediaFile(path=dst, relative_path=right_mdb.relpath(dst))
-                if dst_mf.middle_md5 == src_mf.middle_md5:
-                    logging.warn('File %s exists, database will be updated.' % dst)
-                    right_mdb.add_mf(dst_mf)
-                else:
-                    if args.overwrite:
-                        # overwirte the destination file
-                        logging.warn('File %s exists, will be overwritten.' % dst)
-
-                        if not args.dry_run:
-                            # Remove db item from right_mdb first
-                            right_mdb.del_file(middle_md5=dst_mf.middle_md5)
-                            # Delete file in filesystem
-                            os.unlink(dst)
-                            # Copy from src
-                            if _copy():
-                                copied += 1
-                    else:
-                        logging.error('File %s exists, copy aborted.' % dst)
-            else:
-                if _copy():
-                    copied += 1
+            if _copy():
+                copied += 1
 
     right_mdb.commit()
 
