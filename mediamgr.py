@@ -18,10 +18,19 @@ _COMMANDS = [
     'query',
     'diff',
     'merge',
-    'get',  # get information from file
+
+    # get information from file
+    'get',          
+
+    # Cleanup database items whose related file is not existing in filesystem.
+    'cleanup',      
 ]
 
 _DB_FILE = 'media.sqlite3'
+
+_OP_IGNORE = 1
+_OP_FAILED = 2
+_OP_SUCCESS = 3
 
 def parse_cmd_args():
     import argparse
@@ -102,6 +111,12 @@ def parse_cmd_args():
     parser.add_argument(
         '--ext',
         help='Query media files by file extension.'
+        )
+    parser.add_argument(
+        '--no-raw',
+        dest='no_raw',
+        action='store_true',
+        help='Ignore RAW files.'
         )
     parser.add_argument(
         '--date',
@@ -203,15 +218,15 @@ def parse_cmd_args():
         help='Set gps for the specified media file. gps info is specified in format "latitude,longtitude,altitude".'
     )
     parser.add_argument(
-        '--cleanup',
-        action='store_true',
-        help='Cleanup database items whose related file is not existing in filesystem.'
-    )
-    parser.add_argument(
         '--rearrange-dir',
         dest='rearrange_dir',
         action='store_true',
         help='Rerrange directory for media files, directory created by user will not be affected.'
+    )
+    parser.add_argument(
+        '--make-album',
+        dest='make_album',
+        help="Make album by media files' taken date."
     )
     parser.add_argument(
             '--dry-run',
@@ -272,7 +287,7 @@ def parse_cmd_args():
 
 
     # NOTE: Make sure all path (except relpath) is abstract path.
-    fix_path = lambda path: os.path.abspath(path) if path else None
+    fix_path = lambda path: os.path.normpath(os.path.abspath(path)) if path else None
     args.media_dir = fix_path(args.media_dir)
     args.dst_dir = fix_path(args.dst_dir)
     args.path = fix_path(args.path)
@@ -290,26 +305,30 @@ def parse_cmd_args():
 ### operation functions for update command ###
 
 def op_reload_abspath(mdb, args, mf, dry_run):
-    if os.path.isfile(mf.path):
-        return False
-
     new_path = mdb.abspath(mf.relative_path)
+
+    if not os.path.isfile(new_path):
+        logging.error("File not found: %s" % (mf.relative_path, ))
+        return _OP_FAILED
+
+    if os.path.isfile(mf.path) and os.path.samefile(mf.path, new_path):
+        return _OP_IGNORE
 
     # update abstract path
 
-    logging.info("Path changed: %s -> %s" % (mf.path, path))
+    logging.info("Path changed: %s -> %s" % (mf.path, new_path))
 
     if dry_run:
-        return False
+        return _OP_IGNORE
 
     mdb.update( mf.id, path=new_path )
-    return True
+    return _OP_SUCCESS
 
 def op_reload_md5(mdb, args, mf, dry_run):
     path = mdb.abspath(mf.relative_path)
     if not os.path.isfile(path):
         logging.error("Cannot find file %s." % mf.relative_path)
-        return False
+        return _OP_FAILED
 
     new_mf = MediaFile(mf)
     new_mf.load_file_info(path)
@@ -318,7 +337,7 @@ def op_reload_md5(mdb, args, mf, dry_run):
             new_mf.path == mf.path and \
             new_mf.file_size == mf.file_size and \
             new_mf.middle_md5 == mf.middle_md5:
-                return False
+                return _OP_IGNORE
 
     # update file info
 
@@ -327,7 +346,7 @@ def op_reload_md5(mdb, args, mf, dry_run):
     logging.info("new: %s" % new_mf)
 
     if dry_run:
-        return False
+        return _OP_IGNORE
 
     try:
         mdb.update(
@@ -339,9 +358,37 @@ def op_reload_md5(mdb, args, mf, dry_run):
     except sqlite3.IntegrityError:
         conflict_mf = mdb.get(middle_md5=new_mf.middle_md5)
         logging.error('IntegrityError: middle_md5 conflict with: %s' % conflict_mf)
-        return False
+        return _OP_FAILED
 
-    return True
+    return _OP_SUCCESS
+
+def op_make_album(mdb, args, mf, dry_run):
+    path = mdb.abspath(mf.relative_path)
+
+    old_dir = os.path.dirname(path)
+    new_dir = args.make_album
+
+    if os.path.exists(new_dir) and os.path.samefile(old_dir, new_dir):
+        return _OP_IGNORE
+
+    logging.info("+ %s" % (path, ))
+
+    if dry_run:
+        return
+
+    if not os.path.isdir(new_dir):
+        os.makedirs(new_dir)
+    dst = os.path.join(new_dir, mf.filename)
+
+    if os.path.exists(dst):
+        dst = unique_filename(dst)
+
+    ok, msg = copy_file(path, dst)
+    if not ok:
+        logging.error( 'Copy failed: %s %s' % (path, msg))
+        return _OP_FAILED
+    else:
+        return _OP_SUCCESS
 
 def op_rearrange_dir(mdb, args, mf, dry_run):
     def get_auto_create_dir_day(name):
@@ -355,12 +402,12 @@ def op_rearrange_dir(mdb, args, mf, dry_run):
     old_day_dir = os.path.basename(os.path.dirname(old_dir))
     # If it's a directory created by user, then don't change it
     if get_auto_create_dir_day(old_day_dir) is None:
-        return False
+        return _OP_IGNORE
 
     correct_dir = get_file_dir(args.media_dir, path, mf.create_time)
     # If the current directory is correct, then don't do anything
     if correct_dir == os.path.dirname(path):
-        return False
+        return _OP_IGNORE
 
     if mf.create_time:
         logging.info("Rearrange file %s to %s" % (path, correct_dir))
@@ -368,7 +415,7 @@ def op_rearrange_dir(mdb, args, mf, dry_run):
         logging.info("File %s has no creation time, move it to %s" % (path, correct_dir))
 
     if dry_run:
-        return
+        return _OP_IGNORE
 
     if not os.path.isdir(correct_dir):
         os.makedirs(correct_dir)
@@ -378,7 +425,7 @@ def op_rearrange_dir(mdb, args, mf, dry_run):
     ok, msg = copy_file(path, dst)
     if not ok:
         logging.error( 'Move file %s to %s failed: %s' % (path, correct_dir, msg))
-        return False
+        return _OP_FAILED
     else:
         os.unlink(path)
         mdb.update(
@@ -391,7 +438,7 @@ def op_rearrange_dir(mdb, args, mf, dry_run):
             # old dir is empty, delete it
             logging.info("Directory %s is empty, so delete it." % old_dir)
             os.rmdir(old_dir)
-        return True
+        return _OP_SUCCESS
 
 def op_reload_exif(mdb, args, mf, dry_run):
     relative_path = mf.relative_path
@@ -399,7 +446,7 @@ def op_reload_exif(mdb, args, mf, dry_run):
     exif_info = ExifInfo(mdb.abspath(mf.relative_path))
 
     if exif_info == mf:
-        return False
+        return _OP_IGNORE
 
     # update exif info
     logging.info("Updating: %s" % path)
@@ -407,7 +454,7 @@ def op_reload_exif(mdb, args, mf, dry_run):
     logging.info("new: %s" % exif_info)
 
     if dry_run:
-        return False
+        return _OP_IGNORE
 
     mdb.update(
             mf.id,
@@ -426,23 +473,23 @@ def op_reload_exif(mdb, args, mf, dry_run):
             focal_length_in_35mm=exif_info.focal_length_in_35mm,
             duration=exif_info.duration
             )
-    return True
+    return _OP_SUCCESS
 
 def op_reload(mdb, args, mf, dry_run):
     new_mf = MediaFile(path=mdb.abspath(mf.relative_path), relative_path=mf.relative_path)
     if mf == new_mf:
-        return False
+        return _OP_IGNORE
 
     logging.info("Updating: %s" % mdb.abspath(mf.relative_path))
     logging.info("old: %s" % mf)
     logging.info("new: %s" % new_mf)
 
     if dry_run:
-        return False
+        return _OP_IGNORE
 
     # udpate all info for the specified item
     mdb.update_mf(mf.id, new_mf)
-    return True
+    return _OP_SUCCESS
 
 def op_set_gps(mdb, args, mf, dry_run):
     gps_values = parse_gps_values(args.set_gps)
@@ -451,7 +498,7 @@ def op_set_gps(mdb, args, mf, dry_run):
             mf.gps_latitude     == gps_values[0] and \
             mf.gps_longitude    == gps_values[1] and \
             mf.gps_altitude     == gps_values[2] :
-        return False
+        return _OP_IGNORE
 
     logging.info("Updating: %s" % mdb.abspath(mf.relative_path))
     logging.info("old: %s" % mf._exif_info)
@@ -463,12 +510,58 @@ def op_set_gps(mdb, args, mf, dry_run):
     logging.info("new: %s" % mf._exif_info)
 
     if dry_run:
-        return False
+        return _OP_IGNORE
 
     mdb.update_mf(mf.id, mf)
-    return True
+    return _OP_SUCCESS
 
-def do_update_cleanup(mdb, args):
+### do command functions ###
+
+def do_update(mdb, args):
+    dry_run = args.dry_run
+
+    action_ops = {
+            "reload": op_reload,
+            "reload_exif": op_reload_exif,
+            "reload_md5": op_reload_md5,
+            "set_gps": op_set_gps,
+            "rearrange_dir": op_rearrange_dir,
+            "reload_abspath": op_reload_abspath,
+            "make_album": op_make_album,
+            }
+
+    update_op = None
+    for k, v in action_ops.iteritems():
+        if getattr(args, k, False):
+            update_op = v
+
+    if update_op:
+        it = query_by_args(mdb, args)
+
+        count = 0
+        success_count = 0
+        failed_count = 0
+        ignore_count = 0
+        for mf in it:
+            count += 1
+            res = update_op(mdb, args, mf, dry_run)
+            if res == _OP_SUCCESS:
+                success_count += 1
+            elif res == _OP_FAILED:
+                failed_count += 1
+            elif res == _OP_IGNORE:
+                ignore_count += 1
+
+        mdb.commit()
+
+        logging.info("  Found: %d" % count)
+        logging.info("Success: %d" % success_count)
+        logging.info(" Failed: %d" % failed_count)
+        logging.info("Ignored: %d" % ignore_count)
+    else:
+        logging.error("Please specify an update action.")
+
+def do_cleanup(mdb, args):
     dry_run = args.dry_run
 
     it = query_by_args(mdb, args)
@@ -485,45 +578,6 @@ def do_update_cleanup(mdb, args):
     mdb.commit()
 
     logging.info("Cleanup %d items." % (count, ))
-
-### do command functions ###
-
-def do_update(mdb, args):
-    dry_run = args.dry_run
-
-    if args.cleanup:
-        do_update_cleanup(mdb, args)
-        return
-
-    action_ops = {
-            "reload": op_reload,
-            "reload_exif": op_reload_exif,
-            "reload_md5": op_reload_md5,
-            "set_gps": op_set_gps,
-            "rearrange_dir": op_rearrange_dir,
-            "reload_abspath": op_reload_abspath,
-            }
-
-    update_op = None
-    for k, v in action_ops.iteritems():
-        if getattr(args, k, False):
-            update_op = v
-
-    if update_op:
-        it = query_by_args(mdb, args)
-
-        count = 0
-        success_count = 0
-        for mf in it:
-            count += 1
-            if update_op(mdb, args, mf, dry_run):
-                success_count += 1
-
-        mdb.commit()
-
-        logging.info("Found %d file%s, %d updated." % (count, 's' if count>1 else '', success_count))
-    else:
-        logging.error("Please specify an update action.")
 
 def do_query(mdb, args):
     it = query_by_args(mdb, args)
@@ -626,6 +680,7 @@ def query_by_args(mdb, args):
             ( "gps_latitude,gps_longitude,gps_altitude"  ,    ( args.gps,          parse_gps_values),           ),
             ( "middle_md5"                               ,    ( args.md5,          None),                       ),
             ( "id"                                       ,    ( args.id,           None),                       ),  
+            ( "file_extension-1,file_extension-2"        ,    ( args.no_raw,       lambda v: (( MediaDatabase.CMP_NE, '.nef' ), ( MediaDatabase.CMP_NE, '.arw')) )  ),  
             ( [MediaDatabase.ORDER_BY]                   ,    ( args.sort_by,      lambda v: 'create_time' if v == 'date' else 'file_size' ),  ),  
             ( [MediaDatabase.DESC]                       ,    ( args.reverse,      None),                       ),  
             ]
@@ -664,12 +719,12 @@ def query_by_args(mdb, args):
     else:
         return mdb.iter(**kwparameters)
 
-def build_mdb(mdb, path, no_exif):
-    path = os.path.abspath(path)
+def do_build(mdb, args):
+    no_exif = args.no_exif
     success_count = 0
     failed_count = 0
     count_for_commit = 0
-    for root, dirs, files in os.walk(path, topdown=True):
+    for root, dirs, files in os.walk(args.media_dir, topdown=True):
         for name in files:
             file_path = os.path.join(root, name)
                 
@@ -690,31 +745,39 @@ def build_mdb(mdb, path, no_exif):
     logging.info("Success added: %d." % success_count)
     logging.info("       Failed: %d." % failed_count)
 
+def do_add(mdb, args):
+    if args.path:
+        path = args.path
+        if not os.path.isfile(path):
+            logging.info("File not found: %s." % path)
+        elif mdb.has(relative_path=mdb.relpath(path)):
+            logging.info("%s is in the database, nothing to do." % path)
+        elif not is_valid_media_file(path):
+            logging.error("Invalid media file: %s" % path)
+        elif mdb.add_file(path) == MediaDatabase.SUCCESS:
+            logging.info("+ %s" % path)
+            mdb.commit()
+
 def do_single_dir(args):
     if args.command != 'build' and not os.path.isfile(args.db_path):
         logging.error("No database file under %s. Please run 'mediamgr.py build' to build media database first.")
         exit(1)
 
-    mdb = MediaDatabase(args.db_path)
+    command_handlers = {
+            'build': do_build,
+            'add': do_add,
+            'update': do_update,
+            'query': do_query,
+            'cleanup': do_cleanup,
+            }
 
-    if args.command == 'build':
-        build_mdb(mdb, args.media_dir, args.no_exif)
-    elif args.command == 'add':
-        if args.path:
-            path = args.path
-            if not os.path.isfile(path):
-                logging.info("File not found: %s." % path)
-            elif mdb.has(relative_path=mdb.relpath(path)):
-                logging.info("%s is in the database, nothing to do." % path)
-            elif not is_valid_media_file(path):
-                logging.error("Invalid media file: %s" % path)
-            elif mdb.add_file(path) == MediaDatabase.SUCCESS:
-                logging.info("+ %s" % path)
-                mdb.commit()
-    elif args.command == 'update':
-        do_update(mdb, args)
-    elif args.command == 'query':
-        do_query(mdb, args)
+    mdb = MediaDatabase(args.db_path)
+    handler = command_handlers.get(args.command)
+    if handler:
+        handler(mdb, args)
+    else:
+        logging.error("No handler for command: %s." % args.command)
+        exit(1)
 
 def do_diff(left_mdb, right_mdb, args):
     def log_files_only_db1(db1, db2, prefix):
@@ -858,14 +921,14 @@ def parse_gps_values(text):
     return [float(v) if v else None for v in gps_values]
 
 def main(args):
-    if args.command in ['build', 'update', 'query', 'add']:
+    if args.command in ['build', 'update', 'query', 'add', 'cleanup']:
         do_single_dir(args)
-
-    if args.command in ['diff', 'merge']:
+    elif args.command in ['diff', 'merge']:
         do_multi_dirs(args)
-
-    if args.command in ['get']:
+    elif args.command in ['get']:
         do_get(args)
+    else:
+        logging.error('Unsupported command: %s' % args.command)
 
 if __name__ == '__main__':
     logging.getLogger().setLevel(logging.INFO)
