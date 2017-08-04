@@ -215,7 +215,7 @@ class MediaFile(object):
 
     def delete(self):
         c = self.cursor
-        c.execute('delete from media where path=?', (self.path))
+        c.execute('delete from media where path=?', (self.path,))
         self.commit()
 
     def insert(self):
@@ -292,11 +292,38 @@ def get_file_list(media_dir):
                 L.append(relpath)
     return L
 
+def db_has_path(db, path):
+    c = db.cursor()
+    sql = 'select 1 from media where path=?'
+    c.execute(sql, (path,))
+    return c.fetchone() is not None
+
+def db_cleanup(db, root, dry):
+    c = db.cursor()
+    c.execute('select path from media')
+    to_delete = []
+    for row in c:
+        path = row[0]
+        full_path = os.path.join(root, path)
+        if os.path.isfile(full_path):
+            continue
+        else:
+            print('cleanup %s' % full_path.encode('utf-8'))
+            if dry:
+                pass
+            else:
+                to_delete.append(path)
+
+    for p in to_delete:
+        c.execute('delete from media where path=?', (p,))
+
+    if len(to_delete) > 0:
+        db.commit()
+
 def db_update_db(db, media_dir):
     relpath_list = get_file_list(media_dir)
     for relpath in relpath_list:
-        mf = db_find_by_relpath(db, relpath)
-        if not mf:
+        if not db_has_path(db, relpath):
             print('Load file %s'%relpath.encode('utf-8'))
             mf = MediaFile(db=db, root=media_dir, path=relpath)
             print(json.dumps(mf.asdict(), indent=True))
@@ -542,6 +569,14 @@ def parse_cmd_args():
     )
 
     parser.add_argument(
+        '--cleanup',
+        dest='cleanup',
+        action='store_true',
+        help='cleanup database, print the ID list of records \
+                which are not existed in filesystem', 
+    )
+
+    parser.add_argument(
         '--root', 
         default='.',
         help='specify main root directory', 
@@ -555,22 +590,24 @@ def parse_cmd_args():
     )
 
     parser.add_argument(
-        '--print-new',
+        '--diff',
         dest='print_new',
         action='store_true',
-        help='print new files', 
+        help='diff db with another directory, \
+                print files which are only in another directory to standard output, \
+                print files which are in both directory to error output',
     )
 
     parser.add_argument(
-        '--other-root',
+        '--another-root',
         dest='other_root',
-        help='specify other root directory', 
+        help='specify another root directory', 
     )
     parser.add_argument(
-        '--other-db',
+        '--another-db',
         default=None,
         dest='other_db',
-        help='specify other db', 
+        help='specify another db', 
     )
 
     parser.add_argument(
@@ -582,6 +619,12 @@ def parse_cmd_args():
         '--find',
         help='find same file', 
     )
+
+    parser.add_argument(
+            '--dry',
+            action='store_true',
+            help='dry run', 
+            )
 
     return parser.parse_args()
 
@@ -633,5 +676,7 @@ if __name__ == '__main__':
 
         log_files_only_db1(other_root, other_db, main_root, main_db)
         other_db.close()
+    elif args.cleanup:
+        db_cleanup(main_db, main_root, args.dry)
 
     main_db.close()
