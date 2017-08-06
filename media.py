@@ -90,10 +90,17 @@ def fsdecode(path):
     else:
         return path
 
-def get_meta_by_tags(metadata, tags):
+def get_meta_by_tags(metadata, tags, with_tag=False):
     for tag in tags:
         if metadata.get(tag):
-            return metadata.get(tag)
+            if with_tag:
+                return metadata.get(tag), tag
+            else:
+                return metadata.get(tag)
+
+    if with_tag:
+        return None, None
+    return None
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
@@ -104,6 +111,9 @@ class FileExistedError(Exception):
     pass
 class FileMovedError(Exception):
     pass
+
+def format_date(d):
+    return datetime.datetime.strftime(d, '%Y:%m:%d %H:%M:%S')
 
 def parse_date(s):
     if s:
@@ -117,14 +127,23 @@ def parse_date(s):
     return None
 
 def get_date_from_meta(metadata):
-    date = get_meta_by_tags(metadata, (
+    date, tag = get_meta_by_tags(metadata, (
         'EXIF:DateTimeOriginal', 
         'MakerNotes:DateTimeOriginal',
         'EXIF:CreateDate', 
         'QuickTime:CreateDate',
+        'ICC_Profile:ProfileDateTime',
         #'EXIF:ModifyDate', 
-        ) )
-    return parse_date(date)
+        ), True )
+
+    if date is None:
+        return None
+
+    date = date.strip()
+    if tag == 'ICC_Profile:ProfileDateTime' and date == '1998:02:09 06:49:00':
+        return None
+    else:
+        return parse_date(date)
 
 def guess_date_from_path(path):
     # try to parse file name as time, e.g.:
@@ -232,7 +251,7 @@ class MediaFile(object):
         return self.format_date(self.date) if self.date else None
 
     def format_date(self, d):
-        return datetime.datetime.strftime(d, '%Y:%m:%d %H:%M:%S')
+        return format_date(d)
 
     def load_from_path(self, path):
         self.path = path
