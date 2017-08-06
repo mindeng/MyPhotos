@@ -11,6 +11,7 @@ import hashlib
 import exiftool
 import json
 import datetime
+import re
 
 '''
 find . -type f | sed -E 's/.+[\./]([^/\.]+)/\1/' | sort -u
@@ -66,7 +67,6 @@ def parse_date(s):
             try:
                 return datetime.datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
             except ValueError:
-                eprint( '[parse date error] %s' % (s,) )
                 return None
     return None
 
@@ -79,6 +79,37 @@ def get_date_from_meta(metadata):
         #'EXIF:ModifyDate', 
         ) )
     return parse_date(date)
+
+def guess_date_from_path(path):
+    # try to parse file name as time, e.g.:
+    # 20120607_061356
+    # 2012-03-18 20.28.51.JPG
+    # FxCam_1283244566287.jpg
+
+    if not path:
+        return None
+
+    name = os.path.basename(path)
+    name = os.path.splitext(name)[0]
+
+    # strip all non-numeric characters
+    name = re.sub("[^0-9]", "", name)
+
+    # try FxCam_1283244566287
+    if len(name) == 13:
+        try:
+            timestamp = float(name)/1000.0
+            return datetime.datetime.fromtimestamp(timestamp)
+        except ValueError:
+            pass
+
+    if len(name) == 14:
+        fmt = '%Y%m%d%H%M%S'
+
+        try:
+            return datetime.datetime.strptime(name, fmt)
+        except ValueError:
+            pass
 
 class MediaFile(object):
     db_names = ('path', 'name', 'size', 'extension', 'mime', 'mime_sub', 'date', 'make', 'model', 'md5')
@@ -99,7 +130,11 @@ class MediaFile(object):
         self.mime_type = ''
         if self.mime:
             self.mime_type = '/'.join((self.mime, self.mime_sub))
-        self.date = parse_date(self.date)
+
+        d = self.date
+        self.date = parse_date(d)
+        if d is not None and self.date is None:
+            eprint( '[date error] load from row %s %s' % (d, self.full_path,) )
         self.inum = self.get_inum()
 
     def get_inum(self):
@@ -148,6 +183,10 @@ class MediaFile(object):
                 mime, mime_sub = MIMEType.split('/')
 
             date = get_date_from_meta(metadata)
+            if date is None:
+                date = guess_date_from_path(name)
+            if date is None:
+                eprint( '[date error] %s' % (self.full_path,) )
 
             make = get_meta_by_tags(metadata, (
                 'EXIF:Make',
@@ -339,7 +378,11 @@ def db_update_time(main_db, main_root):
         with exiftool.ExifTool() as et:
             metadata = et.get_metadata(mf.full_path)
             mf.date = get_date_from_meta(metadata)
-            if mf.date:
+            if mf.date is None:
+                mf.date = guess_date_from_path(mf.name)
+            if mf.date is None:
+                eprint( '[date error] %s' % (mf.full_path,) )
+            else:
                 print('%s %s'%(mf.date, mf.path.encode('utf-8')))
                 mf.save()
                 mf.commit()
