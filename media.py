@@ -13,6 +13,7 @@ import json
 import datetime
 import re
 import shutil
+import codecs
 
 '''
 find . -type f | sed -E 's/.+[\./]([^/\.]+)/\1/' | sort -u
@@ -50,6 +51,44 @@ KNOWN_MODELS = {
 
 BUF_SIZE = 65536
 _exif = exiftool.ExifTool()
+
+# This code has been adapted from Lib/os.py in the Python source tree
+# (sha1 265e36e277f3)
+def _fscodec():
+    encoding = sys.getfilesystemencoding()
+    errors = "strict"
+    if encoding != "mbcs":
+        try:
+            codecs.lookup_error("surrogateescape")
+        except LookupError:
+            pass
+        else:
+            errors = "surrogateescape"
+
+    def fsencode(filename):
+        """
+        Encode filename to the filesystem encoding with 'surrogateescape' error
+        handler, return bytes unchanged. On Windows, use 'strict' error handler if
+        the file system encoding is 'mbcs' (which is the default encoding).
+        """
+        if isinstance(filename, bytes):
+            return filename
+        else:
+            return filename.encode(encoding, errors)
+
+    return fsencode
+
+fsencode = _fscodec()
+del _fscodec
+
+def fsdecode(path):
+    if isinstance(path, bytes):
+        try:
+            return path.decode('utf-8')
+        except Exception:
+            return path.decode('gb18030')
+    else:
+        return path
 
 def get_meta_by_tags(metadata, tags):
     for tag in tags:
@@ -213,7 +252,7 @@ class MediaFile(object):
         if date is None:
             date = guess_date_from_path(name)
         if date is None:
-            eprint( '[date error] %s' % (self.full_path,) )
+            eprint( '[date error] %s' % (fsencode(self.full_path),) )
 
         make = get_meta_by_tags(metadata, (
             'EXIF:Make',
@@ -230,7 +269,7 @@ class MediaFile(object):
             if make is None: make = mm[0]
             if model is None: model = mm[1]
         if make is None or model is None:
-            eprint( '[model error] %s' % (self.full_path,) )
+            eprint( '[model error] %s' % (fsencode(self.full_path),) )
 
         self.mime = mime
         self.mime_sub = mime_sub
@@ -321,7 +360,7 @@ class MediaFile(object):
             if found:
                 raise Md5ConflictError(found)
             else:
-                eprint( '[insert error]: %s %s' % (self.path.encode('utf-8'), e,) )
+                eprint( '[insert error]: %s %s' % (fsencode(self.path), e,) )
 
 
     def commit(self):
@@ -359,7 +398,7 @@ def get_file_list(media_dir):
             _, ext = os.path.splitext(name)
             if ext.lower() in MEDIA_EXTENSIONS:
                 file_path = os.path.join(root, name)
-                file_path = file_path.decode('utf-8')
+                file_path = fsdecode(file_path)
                 relpath = os.path.relpath(file_path, media_dir)
                 L.append(relpath)
     return L
@@ -380,7 +419,7 @@ def db_cleanup(db, root, dry):
         if os.path.isfile(full_path):
             continue
         else:
-            print('cleanup %s' % full_path.encode('utf-8'))
+            print('cleanup %s' % fsencode(full_path))
             if dry:
                 pass
             else:
@@ -396,7 +435,7 @@ def db_update_db(db, media_dir):
     relpath_list = get_file_list(media_dir)
     for relpath in relpath_list:
         if not db_has_path(db, relpath):
-            print('Load file %s'%relpath.encode('utf-8'))
+            print('Load file %s'%fsencode(relpath))
             mf = MediaFile(db=db, root=media_dir, path=relpath)
             print(json.dumps(mf.asdict(), indent=True))
             mf.save()
@@ -412,7 +451,7 @@ def db_load_meta(main_db, main_root):
         new_mf = MediaFile(db=main_db, root=main_root, path=relpath)
 
         if new_mf.date != mf.date or new_mf.make != mf.make or new_mf.model != mf.model:
-            print('%s\t%s %s\t%s'%(mf.path.encode('utf-8'), new_mf.date, new_mf.make, new_mf.model, ))
+            print('%s\t%s %s\t%s'%(fsencode(mf.path), new_mf.date, new_mf.make, new_mf.model, ))
             #print(mf)
             #print(new_mf)
             new_mf.save()
@@ -536,7 +575,7 @@ def file_handler(path, size, created, ext):
                 if found:
                     if os.path.isfile(found[0]):
                         # repeated file
-                        print('%s\t== %s' % (found[0].encode('gb18030'), row[0].encode('gb18030')))
+                        print('%s\t== %s' % (fsencode(found[0]), fsencode(row[0])))
                 else:
                     _c.execute('update files set md5=? where path=?', (matched_md5, row[0]))
             if md5 is None:
@@ -608,9 +647,9 @@ def log_files_only_db1(root1, db1, root2, db2):
         for row in c2:
             mf2 = MediaFile(db=db2, root=root2, row=row)
             if mf1 == mf2:
-                eprint('= %s' % mf1.path.encode('utf-8'))
+                eprint('= %s' % fsencode(mf1.path))
             else:
-                print(mf1.path.encode('utf-8'))
+                print(fsencode(mf1.path))
             mf2.save()
 
         mf1.save()
@@ -629,7 +668,6 @@ def import_path(main_db, main_root, another_root, dry):
 
     def file_handler(path):
         stat['total'] += 1
-        path = path.decode('gb18030')
         relpath = os.path.relpath(path, another_root)
         mf1 = MediaFile(root=another_root, path=relpath)
 
@@ -638,7 +676,7 @@ def import_path(main_db, main_root, another_root, dry):
         for row in c:
             mf2 = MediaFile(db=main_db, root=main_root, row=row)
             if mf1 == mf2:
-                eprint('[conflict] ignore file %s\tsame as %s' % (mf1.path.encode('utf-8'), mf2.path.encode('utf-8')))
+                eprint('[conflict] ignore file %s\tsame as %s' % (fsencode(mf1.path), fsencode(mf2.path)))
                 stat['conflicted'] += 1
                 mf2.save()
                 mf2.commit()
@@ -653,9 +691,9 @@ def import_path(main_db, main_root, another_root, dry):
         dst = os.path.join(main_root, mf1.date.strftime('%Y'), mf1.date.strftime('%m'), mf1.date.strftime('%d'), model, mf1.name)
         if os.path.isfile(dst):
             stat['existed'] += 1
-            eprint('[error] file exists %s, ignore' % (dst.encode('utf-8'), ))
+            eprint('[error] file exists %s, ignore' % (fsencode(dst), ))
         else:
-            print('cp %s %s' % (mf1.full_path.encode('utf-8'), dst))
+            print('cp %s %s' % (fsencode(mf1.full_path), dst))
             if not dry:
                 if not os.path.isdir(os.path.dirname(dst)):
                     os.makedirs(os.path.dirname(dst))
