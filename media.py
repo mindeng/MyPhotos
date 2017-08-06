@@ -12,6 +12,7 @@ import exiftool
 import json
 import datetime
 import re
+import shutil
 
 '''
 find . -type f | sed -E 's/.+[\./]([^/\.]+)/\1/' | sort -u
@@ -38,11 +39,17 @@ MP4
 m4v
 '''.split()])
 
+KNOWN_MODELS = {
+        'Nokia6120c': ('Nokia', '6120c'),
+        'MotorolaMilestone': ('Motorola', 'Milestone'),
+        }
+
 #_db = sqlite3.connect(':memory:')
 #_db = sqlite3.connect('medias.db')
 
 
 BUF_SIZE = 65536
+_exif = exiftool.ExifTool()
 
 def get_meta_by_tags(metadata, tags):
     for tag in tags:
@@ -92,24 +99,44 @@ def guess_date_from_path(path):
     name = os.path.basename(path)
     name = os.path.splitext(name)[0]
 
+    # handle Nokia6120c/20100212(004).jpg
+    # remove text after '('
+    idx = name.rfind('(')
+    if idx != -1:
+        name = name[:idx]
+
     # strip all non-numeric characters
     name = re.sub("[^0-9]", "", name)
 
-    # try FxCam_1283244566287
-    if len(name) == 13:
+    # try Nokia6120c/20100212
+    if len(name) == 8:
         try:
-            timestamp = float(name)/1000.0
+            return datetime.datetime.strptime(name, '%Y%m%d')
+        except ValueError:
+            pass
+    # try FxCam_1283244566287
+    elif len(name) == 13:
+        try:
+            #timestamp = float(name)/1000.0
+            # discard milliseconds
+            timestamp = int(name)/1000
             return datetime.datetime.fromtimestamp(timestamp)
         except ValueError:
             pass
-
-    if len(name) == 14:
+    elif len(name) == 14:
         fmt = '%Y%m%d%H%M%S'
 
         try:
             return datetime.datetime.strptime(name, fmt)
         except ValueError:
             pass
+
+def guess_model_from_path(path):
+    components = filter(None, path.split(os.sep))
+    for c in components:
+        if c in KNOWN_MODELS:
+            return KNOWN_MODELS[c]
+    return None, None
 
 class MediaFile(object):
     db_names = ('path', 'name', 'size', 'extension', 'mime', 'mime_sub', 'date', 'make', 'model', 'md5')
@@ -174,37 +201,43 @@ class MediaFile(object):
         name = os.path.basename(path)
         size = os.path.getsize(self.full_path)
         _, extension = os.path.splitext(name)
-        with exiftool.ExifTool() as et:
-            metadata = et.get_metadata(self.full_path)
 
-            mime, mime_sub = None, None
-            MIMEType = metadata.get('File:MIMEType')
-            if MIMEType:
-                mime, mime_sub = MIMEType.split('/')
+        metadata = _exif.get_metadata(self.full_path)
 
-            date = get_date_from_meta(metadata)
-            if date is None:
-                date = guess_date_from_path(name)
-            if date is None:
-                eprint( '[date error] %s' % (self.full_path,) )
+        mime, mime_sub = None, None
+        MIMEType = metadata.get('File:MIMEType')
+        if MIMEType:
+            mime, mime_sub = MIMEType.split('/')
 
-            make = get_meta_by_tags(metadata, (
-                'EXIF:Make',
-                'QuickTime:Make', 
-                'MakerNotes:Make', 
-                ))
-            model = get_meta_by_tags(metadata, (
-                'EXIF:Model', 
-                'QuickTime:Model',
-                'MakerNotes:Model', 
-                ))
+        date = get_date_from_meta(metadata)
+        if date is None:
+            date = guess_date_from_path(name)
+        if date is None:
+            eprint( '[date error] %s' % (self.full_path,) )
 
-            self.mime = mime
-            self.mime_sub = mime_sub
-            self.mime_type = MIMEType
-            self.date = date
-            self.make = make
-            self.model = model
+        make = get_meta_by_tags(metadata, (
+            'EXIF:Make',
+            'QuickTime:Make', 
+            'MakerNotes:Make', 
+            ))
+        model = get_meta_by_tags(metadata, (
+            'EXIF:Model', 
+            'QuickTime:Model',
+            'MakerNotes:Model', 
+            ))
+        if make is None or model is None:
+            mm = guess_model_from_path(path)
+            if make is None: make = mm[0]
+            if model is None: model = mm[1]
+        if make is None or model is None:
+            eprint( '[model error] %s' % (self.full_path,) )
+
+        self.mime = mime
+        self.mime_sub = mime_sub
+        self.mime_type = MIMEType
+        self.date = date
+        self.make = make
+        self.model = model
 
         self.name = name
         self.extension = extension
@@ -369,23 +402,21 @@ def db_update_db(db, media_dir):
             mf.save()
             mf.commit()
 
-def db_update_time(main_db, main_root):
+def db_load_meta(main_db, main_root):
     c = main_db.cursor()
-    sql = 'select * from media where date is null'
+    sql = 'select * from media where date is null or make is null'
     c.execute(sql)
     for row in c:
         mf = MediaFile(db=main_db, root=main_root, row=row)
-        with exiftool.ExifTool() as et:
-            metadata = et.get_metadata(mf.full_path)
-            mf.date = get_date_from_meta(metadata)
-            if mf.date is None:
-                mf.date = guess_date_from_path(mf.name)
-            if mf.date is None:
-                eprint( '[date error] %s' % (mf.full_path,) )
-            else:
-                print('%s %s'%(mf.date, mf.path.encode('utf-8')))
-                mf.save()
-                mf.commit()
+        relpath = mf.path
+        new_mf = MediaFile(db=main_db, root=main_root, path=relpath)
+
+        if new_mf.date != mf.date or new_mf.make != mf.make or new_mf.model != mf.model:
+            print('%s\t%s %s\t%s'%(mf.path.encode('utf-8'), new_mf.date, new_mf.make, new_mf.model, ))
+            #print(mf)
+            #print(new_mf)
+            new_mf.save()
+            new_mf.commit()
 
 def upgrade_db(_db):
     c = _db.cursor()
@@ -444,25 +475,20 @@ def md5_file(fname):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
-def iter_media_files(path_list, cb):
-    for path in path_list:
-        for root, dirs, files in os.walk(path):
-            for name in files:
-                p = os.path.join(root, name)
-                p = os.path.abspath(p)
-                if os.path.islink(p):
-                    # Ignore symbolic link
-                    continue
-                elif is_hard_link(p):
-                    # Ignore hard link
-                    continue
-                
-                _, ext = os.path.splitext(name)
-                ext = ext.lower()
-                if ext in MEDIA_EXTENSIONS:
-                    size = os.path.getsize(p)
-                    created = creation_date(p)
-                    cb(p, size, created, ext)
+def iter_media_files(path, cb):
+    for root, dirs, files in os.walk(path):
+        for name in files:
+            p = os.path.join(root, name)
+            p = os.path.abspath(p)
+            if os.path.islink(p):
+                # Ignore symbolic link
+                continue
+            elif name.startswith('.'):
+                continue
+            
+            _, ext = os.path.splitext(name)
+            if ext.lower() in MEDIA_EXTENSIONS:
+                cb(p)
 
 def is_hard_link(path):
     if os.name == 'nt':
@@ -592,6 +618,62 @@ def log_files_only_db1(root1, db1, root2, db2):
     db1.commit()
     db2.commit()
 
+
+def import_path(main_db, main_root, another_root, dry):
+    c = main_db.cursor()
+    stat = dict(
+            total = 0,
+            conflicted = 0,
+            existed = 0,
+            copied = 0)
+
+    def file_handler(path):
+        stat['total'] += 1
+        path = path.decode('gb18030')
+        relpath = os.path.relpath(path, another_root)
+        mf1 = MediaFile(root=another_root, path=relpath)
+
+        c.execute('select * from media where size=? and date=? and make=? and model=?', 
+                (mf1.size, mf1.date_str, mf1.make, mf1.model,))
+        for row in c:
+            mf2 = MediaFile(db=main_db, root=main_root, row=row)
+            if mf1 == mf2:
+                eprint('[conflict] ignore file %s\tsame as %s' % (mf1.path.encode('utf-8'), mf2.path.encode('utf-8')))
+                stat['conflicted'] += 1
+                mf2.save()
+                mf2.commit()
+                return
+
+        # do copy
+        model = mf1.model
+        if model is None:
+            model = 'unknown_model'
+        else:
+            model = model.replace(' ', '_')
+        dst = os.path.join(main_root, mf1.date.strftime('%Y'), mf1.date.strftime('%m'), mf1.date.strftime('%d'), model, mf1.name)
+        if os.path.isfile(dst):
+            stat['existed'] += 1
+            eprint('[error] file exists %s, ignore' % (dst.encode('utf-8'), ))
+        else:
+            print('cp %s %s' % (mf1.full_path.encode('utf-8'), dst))
+            if not dry:
+                if not os.path.isdir(os.path.dirname(dst)):
+                    os.makedirs(os.path.dirname(dst))
+                shutil.copy2(path, dst)
+                mf = MediaFile(db=main_db, root=main_root, path=os.path.relpath(dst))
+                mf.save()
+                mf.commit()
+                stat['copied'] += 1
+        
+    iter_media_files(another_root, file_handler)
+
+    print('same:    %d' % stat['conflicted'])
+    print('existed: %d' % stat['existed'])
+    print('copied:  %d' % stat['copied'])
+    print('total:   %d' % stat['total'])
+    print('unkonwn: %d' % (stat['total']-stat['copied']-stat['existed']-stat['conflicted'],))
+
+
 def parse_cmd_args():
     import argparse
 
@@ -605,10 +687,10 @@ def parse_cmd_args():
     )
 
     parser.add_argument(
-        '--load-date',
-        dest='load_date',
+        '--load-meta',
+        dest='load_meta',
         action='store_true',
-        help='load date for db record whose date is null', 
+        help='load meta info for media items whose date/make/model is null', 
     )
 
     parser.add_argument(
@@ -659,6 +741,12 @@ def parse_cmd_args():
     )
 
     parser.add_argument(
+        '--import',
+        dest='import_path',
+        help='import media files from the specified path', 
+    )
+
+    parser.add_argument(
         '--find',
         help='find same file', 
     )
@@ -689,6 +777,8 @@ if __name__ == '__main__':
 
     args = parse_cmd_args()
 
+    _exif.start()
+
     main_root = os.path.abspath(args.root)
     main_db_path = args.main_db
 
@@ -700,8 +790,8 @@ if __name__ == '__main__':
     if args.update:
         db_init_db(main_db)
         db_update_db(main_db, main_root)
-    elif args.load_date:
-        db_update_time(main_db, main_root)
+    elif args.load_meta:
+        db_load_meta(main_db, main_root)
     elif args.add:
         db_update_db(main_db, main_root)
     elif args.find:
@@ -721,5 +811,9 @@ if __name__ == '__main__':
         other_db.close()
     elif args.cleanup:
         db_cleanup(main_db, main_root, args.dry)
+    elif args.import_path:
+        import_path(main_db, main_root, args.import_path, args.dry)
 
     main_db.close()
+
+    _exif.terminate()
