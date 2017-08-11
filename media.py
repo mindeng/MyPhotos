@@ -354,8 +354,8 @@ class MediaFile(object):
         if c.fetchone():
             raise FileExistedError()
 
-        c.execute('select * from media where size=? and date=? and make=? and model=?', 
-                (self.size, self.date_str, self.make, self.model))
+        execute_find_same_sql(c, self.size, self.date_str, self.make, self.model)
+
         for row in c:
             mf = MediaFile(db=self.db, row=row)
 
@@ -392,12 +392,34 @@ class MediaFile(object):
         return self._cursor
 
 
+def execute_find_same_sql(c, size, date_str, make, model):
+    sql = 'select * from media where size=?'
+    K = [sql]
+    V = [size]
+
+    if date_str is None:
+        K.append('date is NULL')
+    else:
+        K.append('date=?')
+        V.append(date_str)
+
+    if make is None:
+        K.append('make is NULL')
+    else:
+        K.append('make=? and model=?')
+        V.append(make)
+        V.append(model)
+
+
+    sql = ' and '.join(K)
+    return c.execute(sql, V)
+
+
 def db_find_same(main_db, main_root, path):
     L = []
     c = main_db.cursor()
     mf = MediaFile(path=path)
-    c.execute('select * from media where size=? and date=? and make=? and model=?', 
-            (mf.size, mf.date_str, mf.make, mf.model,))
+    execute_find_same_sql(c, mf.size, mf.date_str, mf.make, mf.model)
     for row in c:
         mf2 = MediaFile(db=main_db, root=main_root, row=row)
         if mf == mf2:
@@ -661,8 +683,7 @@ def log_files_only_db1(root1, db1, root2, db2):
     
     for item in c1:
         mf1 = MediaFile(db=db1, row=item, root=root1)
-        c2.execute('select * from media where size=? and date=? and make=? and model=?', 
-                (mf1.size, mf1.date_str, mf1.make, mf1.model,))
+        execute_find_same_sql(c2, mf1.size, mf1.date_str, mf1.make, mf1.model)
         for row in c2:
             mf2 = MediaFile(db=db2, root=root2, row=row)
             if mf1 == mf2:
@@ -690,8 +711,7 @@ def import_path(main_db, main_root, another_root, dry):
         relpath = os.path.relpath(path, another_root)
         mf1 = MediaFile(root=another_root, path=relpath)
 
-        c.execute('select * from media where size=? and date=? and make=? and model=?', 
-                (mf1.size, mf1.date_str, mf1.make, mf1.model,))
+        execute_find_same_sql(c, mf1.size, mf1.date_str, mf1.make, mf1.model)
         for row in c:
             mf2 = MediaFile(db=main_db, root=main_root, row=row)
             if mf1 == mf2:
@@ -713,6 +733,7 @@ def import_path(main_db, main_root, another_root, dry):
             eprint('[error] file exists %s, ignore' % (fsencode(dst), ))
         else:
             print('cp %s %s' % (fsencode(mf1.full_path), dst))
+            sys.stdout.flush()
             if not dry:
                 if not os.path.isdir(os.path.dirname(dst)):
                     os.makedirs(os.path.dirname(dst))
@@ -754,7 +775,7 @@ def parse_cmd_args():
         '--cleanup',
         dest='cleanup',
         action='store_true',
-        help='cleanup database, print the ID list of records \
+        help='cleanup database, delete records \
                 which are not existed in filesystem', 
     )
 
