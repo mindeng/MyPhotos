@@ -742,7 +742,7 @@ def import_path(main_db, main_root, another_root, dry):
             stat['existed'] += 1
             eprint('[error] file exists %s, ignore' % (fsencode(dst), ))
         else:
-            print('cp %s %s' % (fsencode(mf1.full_path), dst))
+            print('cp %s %s' % (fsencode(mf1.full_path), fsencode(dst)))
             sys.stdout.flush()
             if not dry:
                 if not os.path.isdir(os.path.dirname(dst)):
