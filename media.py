@@ -43,6 +43,7 @@ m4v
 KNOWN_MODELS = {
         'Nokia6120c': ('Nokia', '6120c'),
         'MotorolaMilestone': ('Motorola', 'Milestone'),
+        'Milestone': ('Motorola', 'Milestone'),
         }
 
 #_db = sqlite3.connect(':memory:')
@@ -194,6 +195,10 @@ def guess_model_from_path(path):
     for c in components:
         if c in KNOWN_MODELS:
             return KNOWN_MODELS[c]
+        else:
+            for m in KNOWN_MODELS:
+                if m in c:
+                    return KNOWN_MODELS[m]
     return None, None
 
 class MediaFile(object):
@@ -219,7 +224,7 @@ class MediaFile(object):
         d = self.date
         self.date = parse_date(d)
         if d is not None and self.date is None:
-            eprint( '[date error] load from row %s %s' % (d, self.full_path,) )
+            eprint( '[unknown_date] load from row %s %s' % (d, self.full_path,) )
         self.inum = self.get_inum()
 
     def get_inum(self):
@@ -271,7 +276,7 @@ class MediaFile(object):
         if date is None:
             date = guess_date_from_path(name)
         if date is None:
-            eprint( '[date error] %s' % (fsencode(self.full_path),) )
+            eprint( '[unknown_date] %s' % (fsencode(self.full_path),) )
 
         make = get_meta_by_tags(metadata, (
             'EXIF:Make',
@@ -283,12 +288,14 @@ class MediaFile(object):
             'QuickTime:Model',
             'MakerNotes:Model', 
             ))
+        if type(model) == int:
+            model = str(model)
         if make is None or model is None:
             mm = guess_model_from_path(path)
             if make is None: make = mm[0]
             if model is None: model = mm[1]
         if make is None or model is None:
-            eprint( '[model error] %s' % (fsencode(self.full_path),) )
+            eprint( '[unknown_model] %s' % (fsencode(self.full_path),) )
 
         self.mime = mime
         self.mime_sub = mime_sub
@@ -341,7 +348,7 @@ class MediaFile(object):
             params_fmt = ','.join(['%s=?'%name for name in MediaFile.db_names])
             c.execute('update media set %s where path=?' % params_fmt, self.asrow() + [self.path] )
         except Md5ConflictError as e:
-            eprint( '[conflict] %s\t== %s' % (e.args[0].path, self.path) )
+            eprint( '[conflict] %s\t== %s' % (e.args[0], self.path) )
 
     def delete(self):
         c = self.cursor
@@ -727,7 +734,10 @@ def import_path(main_db, main_root, another_root, dry):
             model = 'unknown_model'
         else:
             model = model.replace(' ', '_')
-        dst = os.path.join(main_root, mf1.date.strftime('%Y'), mf1.date.strftime('%m'), mf1.date.strftime('%d'), model, mf1.name)
+        date = mf1.date
+        if date is None:
+            date = datetime.datetime.fromtimestamp(os.path.getmtime(mf1.full_path))
+        dst = os.path.join(main_root, date.strftime('%Y'), date.strftime('%m'), date.strftime('%d'), model, mf1.name)
         if os.path.isfile(dst):
             stat['existed'] += 1
             eprint('[error] file exists %s, ignore' % (fsencode(dst), ))
@@ -739,9 +749,12 @@ def import_path(main_db, main_root, another_root, dry):
                     os.makedirs(os.path.dirname(dst))
                 shutil.copy2(path, dst)
                 mf = MediaFile(db=main_db, root=main_root, path=os.path.relpath(dst))
-                mf.save()
-                mf.commit()
-                stat['copied'] += 1
+                if mf.md5 == mf1.md5:
+                    mf.save()
+                    mf.commit()
+                    stat['copied'] += 1
+                else:
+                    eprint('[error] copy failed %s %s, md5 not matched' % (fsencode(mf1.full_path), fsencode(dst), ))
         
     iter_media_files(another_root, file_handler)
 
@@ -749,7 +762,7 @@ def import_path(main_db, main_root, another_root, dry):
     print('existed: %d' % stat['existed'])
     print('copied:  %d' % stat['copied'])
     print('total:   %d' % stat['total'])
-    print('unkonwn: %d' % (stat['total']-stat['copied']-stat['existed']-stat['conflicted'],))
+    print('unknown: %d' % (stat['total']-stat['copied']-stat['existed']-stat['conflicted'],))
 
 
 def parse_cmd_args():
