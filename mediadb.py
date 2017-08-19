@@ -82,6 +82,7 @@ class MediaDatabase(object):
     CMP_LTE     = ('<=',)
     CMP_GT      = ('>',)
     CMP_LT      = ('<',)
+    CMP_NE      = ('<>',)
 
     ORDER_BY     = 'order by'
     DESC        = 'desc'
