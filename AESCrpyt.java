@@ -25,7 +25,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.xml.bind.DatatypeConverter;
 
-public class AESEncrpyt {
+public class AESCrpyt {
 
 	private static final int HEAD_LEN = 16;
 
@@ -169,13 +169,22 @@ public class AESEncrpyt {
 			
 			// Read head info
 			byte[] head_info = new byte[HEAD_LEN];
-			byte[] salt = new byte[KeySizeAES128];
+			byte[] salt = null;
 			bis.read(head_info);
-			bis.read(salt);
-			int key_len = bis.read();
+
 			// Parse head info
 			int magic = bytes2int(head_info);
 			int version = head_info[4];
+
+            if (magic == _MAGIC_NUM) {
+                salt = new byte[KeySizeAES128];
+                bis.read(salt);
+            }
+            else {
+                salt = head_info;
+            }
+
+			int key_len = bis.read();
 			
 			System.out.println("version: " + version);
 			System.out.println("key_len: " + key_len);
@@ -186,7 +195,7 @@ public class AESEncrpyt {
 
 			Cipher deCipher = getCipher(Cipher.DECRYPT_MODE, key, iv);
 			
-			if (deCipher != null && magic == _MAGIC_NUM && version == _VERSION) {
+			if (deCipher != null) {
 
 				fis = new CipherInputStream(bis, deCipher);
 				fos = new BufferedOutputStream(
