@@ -202,7 +202,7 @@ def guess_model_from_path(path):
     return None, None
 
 class MediaFile(object):
-    db_names = ('path', 'name', 'size', 'extension', 'mime', 'mime_sub', 'date', 'make', 'model', 'md5')
+    db_names = ('path', 'name', 'size', 'extension', 'mime', 'mime_sub', 'date', 'make', 'model', 'md5', 'mtime')
 
     def __init__(self, db=None, root=None, path=None, row=None):
         self.db = db
@@ -212,6 +212,18 @@ class MediaFile(object):
         elif row:
             self.load_from_row(row)
 
+    @property
+    def mtime(self):
+        if not hasattr(self, '_mtime'):
+            self._mtime = os.path.getmtime(self.full_path)
+        return self._mtime
+
+    @mtime.setter
+    def mtime(self, t):
+        if type(t) is datetime.datetime:
+            self._mtime = t
+        else:
+            self._mtime = parse_date(t)
 
     def load_from_row(self, row):
         for i in xrange(len(row)):
@@ -327,11 +339,19 @@ class MediaFile(object):
     def md5(self):
         if self._md5 is None:
             self._md5 = md5_file(self.full_path)
+            self._md5_updated = True
         return self._md5
 
     @md5.setter
     def md5(self, m):
         self._md5 = m
+
+    @property
+    def md5_updated(self):
+        return hasattr(self, '_md5_updated') and self._md5_updated
+
+    def clear_md5_updated(self):
+        self._md5_updated = False
 
     def __str__(self):
         return json.dumps(self.tojson(), indent=True)
@@ -348,7 +368,7 @@ class MediaFile(object):
             params_fmt = ','.join(['%s=?'%name for name in MediaFile.db_names])
             c.execute('update media set %s where path=?' % params_fmt, self.asrow() + [self.path] )
         except Md5ConflictError as e:
-            eprint( '[conflict] %s\t== %s' % (e.args[0], self.path) )
+            eprint( '[conflict] %s\t== %s' % (e.args[0][0], self.path) )
 
     def delete(self):
         c = self.cursor
@@ -512,20 +532,37 @@ def upgrade_db(_db):
         c.execute('pragma user_version=1')
         _db.commit()
 
-def db_find_by_relpath(_db, path):
+def db_find_by_relpath(_db, root, path):
     c = _db.cursor()
     sql = 'select * from media where path=?'
     c.execute(sql, (path,))
     found = c.fetchone()
     if found:
-        return MediaFile(db=_db, row=found)
+        return MediaFile(db=_db, root=root, row=found)
+    else:
+        return None
 
 def db_init_db(_db):
     c = _db.cursor()
+
+    #try:
+    #    sql = 'select count(*) from media'
+    #    _db.execute(sql)
+    #except sqlite3.OperationalError:
+    #    # table is not existed
+    #    pass
+    
     # Create table
     c.execute('''CREATE TABLE IF NOT EXISTS media
              (path text unique, name text, size integer, extension text, mime text, mime_sub text, date text, make text, model text, md5 text unique)''')
     _db.commit()
+
+    user_version = c.execute('pragma user_version').fetchone()
+    if user_version[0] == 0:
+        # Add field mtime
+        c.execute('alter table media add column mtime text')
+        c.execute('pragma user_version=1')
+        _db.commit()
 
 
 def creation_date(path_to_file):
@@ -575,6 +612,7 @@ def iter_media_files(path, cb):
             
             _, ext = os.path.splitext(name)
             if ext.lower() in MEDIA_EXTENSIONS:
+                p = fsdecode(p)
                 cb(p)
 
 def is_hard_link(path):
@@ -705,7 +743,7 @@ def log_files_only_db1(root1, db1, root2, db2):
     db2.commit()
 
 
-def import_path(main_db, main_root, another_root, dry):
+def import_path(main_db, main_root, another_db, another_root, dry):
     c = main_db.cursor()
     stat = dict(
             total = 0,
@@ -716,7 +754,10 @@ def import_path(main_db, main_root, another_root, dry):
     def file_handler(path):
         stat['total'] += 1
         relpath = os.path.relpath(path, another_root)
-        mf1 = MediaFile(root=another_root, path=relpath)
+
+        mf1 = db_find_by_relpath(another_db, root=another_root, path=relpath)
+        if mf1 is None:
+            mf1 = MediaFile(another_db, root=another_root, path=relpath)
 
         execute_find_same_sql(c, mf1.size, mf1.date_str, mf1.make, mf1.model)
         for row in c:
@@ -724,8 +765,19 @@ def import_path(main_db, main_root, another_root, dry):
             if mf1 == mf2:
                 eprint('[conflict] ignore file %s\tsame as %s' % (fsencode(mf1.path), fsencode(mf2.path)))
                 stat['conflicted'] += 1
+
+            # save md5
+            if mf1.md5_updated:
+                mf1.clear_md5_updated()
+                mf1.save()
+                mf1.commit()
+
+            if mf2.md5_updated:
+                mf2.clear_md5_updated()
                 mf2.save()
                 mf2.commit()
+
+            if mf1 == mf2:
                 return
 
         # do copy
@@ -822,13 +874,8 @@ def parse_cmd_args():
     parser.add_argument(
         '--another-db',
         default=None,
-        dest='other_db',
+        dest='another_db',
         help='specify another db', 
-    )
-
-    parser.add_argument(
-        '--add',
-        help='add path', 
     )
 
     parser.add_argument(
@@ -870,21 +917,19 @@ if __name__ == '__main__':
 
     _exif.start()
 
-    main_root = os.path.abspath(args.root)
-    main_db_path = args.main_db
+    main_root = os.path.abspath(fsdecode(args.root))
+    main_db_path = fsdecode(args.main_db)
 
     if main_db_path is None:
         main_db_path = os.path.join(main_root, DEFAULT_DB_NAME)
 
     main_db = sqlite3.connect(main_db_path)
+    db_init_db(main_db)
 
     if args.update:
-        db_init_db(main_db)
         db_update_db(main_db, main_root)
     elif args.load_meta:
         db_load_meta(main_db, main_root)
-    elif args.add:
-        db_update_db(main_db, main_root)
     elif args.find:
         path = os.path.abspath(args.find)
         relpath = os.path.relpath(path, main_root)
@@ -892,18 +937,28 @@ if __name__ == '__main__':
         for f in files:
             print(json.dumps(f.asdict(), indent=True))
     elif args.print_new:
-        other_root = args.other_root
-        other_db_path = args.other_db
+        other_root = fsdecode(args.other_root)
+        other_db_path = fsdecode(args.another_db)
         if other_db_path is None:
             other_db_path = os.path.join(other_root, DEFAULT_DB_NAME)
-        other_db = sqlite3.connect(other_db_path)
+        another_db = sqlite3.connect(other_db_path)
+        db_init_db(another_db)
 
-        log_files_only_db1(other_root, other_db, main_root, main_db)
-        other_db.close()
+        log_files_only_db1(other_root, another_db, main_root, main_db)
+        another_db.close()
     elif args.cleanup:
         db_cleanup(main_db, main_root, args.dry)
     elif args.import_path:
-        import_path(main_db, main_root, args.import_path, args.dry)
+        another_root = os.path.abspath(fsdecode(args.import_path))
+        if os.access(another_root, os.W_OK):
+            another_db_path = os.path.join(another_root, DEFAULT_DB_NAME)
+        else:
+            _, another_db_path = tempfile.mkstemp('.db', DEFAULT_DB_NAME)
+
+        print('another_db: %s' % another_db_path)
+        another_db = sqlite3.connect(another_db_path)
+        db_init_db(another_db)
+        import_path(main_db, main_root, another_db, another_root, args.dry)
 
     main_db.close()
 
