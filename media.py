@@ -955,7 +955,7 @@ if __name__ == '__main__':
         else:
             _, another_db_path = tempfile.mkstemp('.db', DEFAULT_DB_NAME)
 
-        print('another_db: %s' % another_db_path)
+        print('another_db: %s' % fsencode(another_db_path))
         another_db = sqlite3.connect(another_db_path)
         db_init_db(another_db)
         import_path(main_db, main_root, another_db, another_root, args.dry)
