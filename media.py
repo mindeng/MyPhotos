@@ -8,12 +8,16 @@ import os
 import platform
 import sqlite3
 import hashlib
-import exiftool
 import json
 import datetime
 import re
 import shutil
 import codecs
+
+_DIR = dir_path = os.path.dirname(os.path.realpath(__file__))
+
+sys.path.append(os.path.join(_DIR, 'pyexiftool'))
+import exiftool
 
 '''
 find . -type f | sed -E 's/.+[\./]([^/\.]+)/\1/' | sort -u
