@@ -511,12 +511,15 @@ def db_cleanup(db, root, dry):
     if len(to_delete) > 0:
         db.commit()
 
-def db_update_db(db, media_dir):
+def db_update_db(db, media_dir, with_md5):
     relpath_list = get_file_list(media_dir)
     for relpath in relpath_list:
         if not db_has_path(db, relpath):
             print('Load file %s'%fsencode(relpath))
             mf = MediaFile(db=db, root=media_dir, path=relpath)
+            if with_md5:
+                # force to load md5
+                _ = mf.md5
             print(json.dumps(mf.asdict(), indent=True))
             mf.save()
             mf.commit()
@@ -843,6 +846,12 @@ def parse_cmd_args():
     )
 
     parser.add_argument(
+        '--with-md5',
+        action='store_true',
+        help='update with md5', 
+    )
+
+    parser.add_argument(
         '--load-meta',
         dest='load_meta',
         action='store_true',
@@ -940,7 +949,7 @@ if __name__ == '__main__':
     db_init_db(main_db)
 
     if args.update:
-        db_update_db(main_db, main_root)
+        db_update_db(main_db, main_root, args.with_md5)
     elif args.load_meta:
         db_load_meta(main_db, main_root)
     elif args.find:
