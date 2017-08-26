@@ -386,7 +386,8 @@ class MediaFile(object):
 
     def insert(self):
         c = self.cursor
-        c.execute('select * from media where path=? COLLATE NOCASE', (self.path,))
+        #c.execute('select * from media where path=? COLLATE NOCASE', (self.path,))
+        c.execute('select * from media where path=?', (self.path,))
         if c.fetchone():
             raise FileExistedError()
 
@@ -808,7 +809,7 @@ def import_path(main_db, main_root, another_db, another_root, dry):
         dst = os.path.join(main_root, date.strftime('%Y'), date.strftime('%m'), date.strftime('%d'), model, mf1.name)
         if os.path.isfile(dst):
             stat['existed'] += 1
-            eprint('[error] file exists %s, ignore' % (fsencode(dst), ))
+            eprint('[error] copy failed, file exists: %s' % (fsencode(dst), ))
         else:
             print('cp %s %s' % (fsencode(mf1.full_path), fsencode(dst)))
             sys.stdout.flush()
