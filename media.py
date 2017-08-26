@@ -361,14 +361,19 @@ class MediaFile(object):
             ['path', 'name', 'size', 'mime_type', 'date', 'make', 'model']])
 
     def save(self):
+        self.clear_md5_updated()
+
         c = self.cursor
         try:
             self.insert()
         except FileExistedError:
             params_fmt = ','.join(['%s=?'%name for name in MediaFile.db_names])
-            c.execute('update media set %s where path=?' % params_fmt, self.asrow() + [self.path] )
+            try:
+                c.execute('update media set %s where path=?' % params_fmt, self.asrow() + [self.path] )
+            except sqlite3.IntegrityError:
+                eprint( '[conflict] %s repeated' % (fsencode(self.full_path),) )
         except Md5ConflictError as e:
-            eprint( '[conflict] %s\t== %s' % (e.args[0][0], self.path) )
+            eprint( '[conflict] %s\t== %s' % (e.args[0], self.path) )
 
     def delete(self):
         c = self.cursor
@@ -389,9 +394,9 @@ class MediaFile(object):
             if os.path.isfile(mf.full_path):
 
                 if self == mf:
-                    mf.save()
-                    mf.commit()
-                    raise Md5ConflictError(mf)
+                    #mf.save()
+                    #mf.commit()
+                    raise Md5ConflictError(mf.path)
             else:
                 # file may has been renamed or moved
                 pass
@@ -404,7 +409,7 @@ class MediaFile(object):
             c.execute(sql, (self.md5,))
             found = c.fetchone()
             if found:
-                raise Md5ConflictError(found)
+                raise Md5ConflictError(found[0])
             else:
                 eprint( '[insert error]: %s %s' % (fsencode(self.path), e,) )
 
@@ -439,6 +444,7 @@ def execute_find_same_sql(c, size, date_str, make, model):
 
 
     sql = ' and '.join(K)
+    #eprint(sql, V)
     return c.execute(sql, V)
 
 
@@ -451,7 +457,9 @@ def db_find_same(main_db, main_root, path):
         mf2 = MediaFile(db=main_db, root=main_root, row=row)
         if mf == mf2:
             L.append(mf2)
-        mf2.save()
+
+    if mf.md5_updated:
+        mf.save()
 
     main_db.commit()
     return L
@@ -735,9 +743,12 @@ def log_files_only_db1(root1, db1, root2, db2):
                 eprint('= %s' % fsencode(mf1.path))
             else:
                 print(fsencode(mf1.path))
-            mf2.save()
 
-        mf1.save()
+            if mf2.md5_updated:
+                mf2.save()
+
+        if mf1.md5_updated:
+            mf1.save()
 
     db1.commit()
     db2.commit()
@@ -747,7 +758,7 @@ def import_path(main_db, main_root, another_db, another_root, dry):
     c = main_db.cursor()
     stat = dict(
             total = 0,
-            conflicted = 0,
+            samed = 0,
             existed = 0,
             copied = 0)
 
@@ -763,17 +774,15 @@ def import_path(main_db, main_root, another_db, another_root, dry):
         for row in c:
             mf2 = MediaFile(db=main_db, root=main_root, row=row)
             if mf1 == mf2:
-                eprint('[conflict] ignore file %s\tsame as %s' % (fsencode(mf1.path), fsencode(mf2.path)))
-                stat['conflicted'] += 1
+                eprint('ignore file %s\tsame as %s' % (fsencode(mf1.path), fsencode(mf2.path)))
+                stat['samed'] += 1
 
             # save md5
             if mf1.md5_updated:
-                mf1.clear_md5_updated()
                 mf1.save()
                 mf1.commit()
 
             if mf2.md5_updated:
-                mf2.clear_md5_updated()
                 mf2.save()
                 mf2.commit()
 
@@ -810,11 +819,11 @@ def import_path(main_db, main_root, another_db, another_root, dry):
         
     iter_media_files(another_root, file_handler)
 
-    print('same:    %d' % stat['conflicted'])
+    print('same:    %d' % stat['samed'])
     print('existed: %d' % stat['existed'])
     print('copied:  %d' % stat['copied'])
     print('total:   %d' % stat['total'])
-    print('unknown: %d' % (stat['total']-stat['copied']-stat['existed']-stat['conflicted'],))
+    print('unknown: %d' % (stat['total']-stat['copied']-stat['existed']-stat['samed'],))
 
 
 def parse_cmd_args():
